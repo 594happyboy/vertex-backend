@@ -6,56 +6,75 @@ import io.jsonwebtoken.SignatureAlgorithm
 import io.jsonwebtoken.security.Keys
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
+import java.nio.charset.StandardCharsets
 import java.util.*
-import javax.crypto.SecretKey
 
 /**
  * JWT 工具类
+ * @author ZZY
+ * @date 2025-10-18
  */
 @Component
 class JwtUtil {
     
-    @Value("\${blog.jwt.secret:your-secret-key-change-it-in-production-must-be-at-least-256-bits}")
+    @Value("\${jwt.secret:your-256-bit-secret-key-change-in-production-environment}")
     private lateinit var secret: String
     
-    @Value("\${blog.jwt.expiration:86400000}")
-    private var expiration: Long = 86400000 // 默认 24 小时
+    @Value("\${jwt.expiration:7200000}") // 默认2小时
+    private var expiration: Long = 7200000
+    
+    @Value("\${jwt.issuer:vertex-backend}")
+    private lateinit var issuer: String
     
     /**
-     * 获取签名密钥
+     * 生成用户令牌
      */
-    private fun getSignKey(): SecretKey {
-        return Keys.hmacShaKeyFor(secret.toByteArray())
-    }
-    
-    /**
-     * 生成 Token
-     * @param userId 用户ID
-     * @param username 用户名
-     * @return JWT Token
-     */
-    fun generateToken(userId: Long, username: String): String {
+    fun generateUserToken(userId: Long, username: String): String {
         val now = Date()
         val expiryDate = Date(now.time + expiration)
+        
+        val key = Keys.hmacShaKeyFor(secret.toByteArray(StandardCharsets.UTF_8))
         
         return Jwts.builder()
             .setSubject(userId.toString())
             .claim("username", username)
+            .claim("role", "USER")
+            .setIssuer(issuer)
             .setIssuedAt(now)
             .setExpiration(expiryDate)
-            .signWith(getSignKey(), SignatureAlgorithm.HS256)
+            .signWith(key, SignatureAlgorithm.HS256)
             .compact()
     }
     
     /**
-     * 从 Token 中获取 Claims
-     * @param token JWT Token
-     * @return Claims
+     * 生成游客令牌
      */
-    fun getClaimsFromToken(token: String): Claims? {
+    fun generateVisitorToken(targetUserId: Long, targetUsername: String): String {
+        val now = Date()
+        val expiryDate = Date(now.time + expiration)
+        
+        val key = Keys.hmacShaKeyFor(secret.toByteArray(StandardCharsets.UTF_8))
+        
+        return Jwts.builder()
+            .setSubject("visitor:$targetUserId")
+            .claim("targetUserId", targetUserId)
+            .claim("targetUsername", targetUsername)
+            .claim("role", "VISITOR")
+            .setIssuer(issuer)
+            .setIssuedAt(now)
+            .setExpiration(expiryDate)
+            .signWith(key, SignatureAlgorithm.HS256)
+            .compact()
+    }
+    
+    /**
+     * 解析令牌
+     */
+    fun parseToken(token: String): Claims? {
         return try {
+            val key = Keys.hmacShaKeyFor(secret.toByteArray(StandardCharsets.UTF_8))
             Jwts.parserBuilder()
-                .setSigningKey(getSignKey())
+                .setSigningKey(key)
                 .build()
                 .parseClaimsJws(token)
                 .body
@@ -65,52 +84,59 @@ class JwtUtil {
     }
     
     /**
-     * 从 Token 中获取用户ID
-     * @param token JWT Token
-     * @return 用户ID
-     */
-    fun getUserIdFromToken(token: String): Long? {
-        val claims = getClaimsFromToken(token) ?: return null
-        return claims.subject?.toLongOrNull()
-    }
-    
-    /**
-     * 从 Token 中获取用户名
-     * @param token JWT Token
-     * @return 用户名
-     */
-    fun getUsernameFromToken(token: String): String? {
-        val claims = getClaimsFromToken(token) ?: return null
-        return claims["username"] as? String
-    }
-    
-    /**
-     * 验证 Token 是否有效
-     * @param token JWT Token
-     * @return 是否有效
+     * 验证令牌
      */
     fun validateToken(token: String): Boolean {
         return try {
-            val claims = getClaimsFromToken(token) ?: return false
-            val expiration = claims.expiration
-            expiration.after(Date())
+            val claims = parseToken(token)
+            claims != null && claims.expiration.after(Date())
         } catch (e: Exception) {
             false
         }
     }
     
     /**
-     * 从请求头中提取 Token
-     * @param authHeader Authorization 请求头
-     * @return Token 或 null
+     * 从令牌获取用户ID
      */
-    fun extractTokenFromHeader(authHeader: String?): String? {
-        if (authHeader.isNullOrBlank()) {
-            return null
+    fun getUserIdFromToken(token: String): Long? {
+        return try {
+            val claims = parseToken(token) ?: return null
+            val subject = claims.subject
+            if (subject.startsWith("visitor:")) {
+                null
+            } else {
+                subject.toLongOrNull()
+            }
+        } catch (e: Exception) {
+            null
         }
-        return if (authHeader.startsWith("Bearer ", ignoreCase = true)) {
-            authHeader.substring(7)
-        } else {
+    }
+    
+    /**
+     * 从令牌获取角色
+     */
+    fun getRoleFromToken(token: String): String? {
+        return try {
+            val claims = parseToken(token)
+            claims?.get("role", String::class.java)
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    /**
+     * 从游客令牌获取目标用户ID
+     */
+    fun getTargetUserIdFromToken(token: String): Long? {
+        return try {
+            val claims = parseToken(token) ?: return null
+            val role = claims.get("role", String::class.java)
+            if (role == "VISITOR") {
+                claims.get("targetUserId", java.lang.Long::class.java)?.toLong()
+            } else {
+                null
+            }
+        } catch (e: Exception) {
             null
         }
     }

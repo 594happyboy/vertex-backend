@@ -4,24 +4,33 @@ import com.baomidou.mybatisplus.annotation.*
 import java.time.LocalDateTime
 
 /**
- * 分组实体
+ * 文档实体
  * @author ZZY
  * @date 2025-10-18
  */
-@TableName("blog_groups")
-data class Group(
-    /** 分组ID */
+@TableName("documents")
+data class Document(
+    /** 文档ID */
     @TableId(type = IdType.AUTO)
     var id: Long? = null,
     
     /** 用户ID */
     var userId: Long,
     
-    /** 分组名称 */
-    var name: String,
+    /** 分组ID */
+    var groupId: Long? = null,
     
-    /** 父分组ID */
-    var parentId: Long? = null,
+    /** 标题 */
+    var title: String,
+    
+    /** 类型: md/pdf */
+    var type: String,
+    
+    /** 状态: draft/published */
+    var status: String = "draft",
+    
+    /** Markdown内容 */
+    var contentMd: String? = null,
     
     /** 排序索引 */
     var sortIndex: Int = 0,
@@ -37,10 +46,21 @@ data class Group(
     /** 更新时间 */
     @TableField(fill = FieldFill.INSERT_UPDATE)
     var updatedAt: LocalDateTime? = null
-) {
+)
 
-    /** 子分组（不映射到数据库） */
-    @TableField(exist = false)
-    var children: MutableList<Group>? = null
+/**
+ * 文档类型枚举
+ */
+enum class DocType(val value: String) {
+    MD("md"),
+    PDF("pdf")
+}
+
+/**
+ * 文档状态枚举
+ */
+enum class DocStatus(val value: String) {
+    DRAFT("draft"),
+    PUBLISHED("published")
 }
 

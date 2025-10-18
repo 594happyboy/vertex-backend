@@ -41,75 +41,61 @@ CREATE TABLE IF NOT EXISTS file_metadata (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文件元数据表';
 
 -- ============================================
--- 博客管理模块
+-- 博客管理模块（按照 backend-spec.md 设计）
 -- ============================================
 
--- 用户表（博客管理员）
+-- 用户表
 CREATE TABLE IF NOT EXISTS users (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '用户ID',
-    username VARCHAR(50) NOT NULL UNIQUE COMMENT '用户名',
+    username VARCHAR(64) NOT NULL UNIQUE COMMENT '用户名',
     password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希',
-    email VARCHAR(100) COMMENT '邮箱',
-    avatar_url VARCHAR(500) COMMENT '头像URL',
-    storage_quota BIGINT DEFAULT 1073741824 COMMENT '存储配额(默认1GB)',
-    used_storage BIGINT DEFAULT 0 COMMENT '已用存储',
+    nickname VARCHAR(64) COMMENT '昵称',
+    avatar TEXT COMMENT '头像URL',
+    status SMALLINT DEFAULT 1 COMMENT '状态(1:正常 0:禁用)',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    last_login_at TIMESTAMP NULL COMMENT '最后登录时间',
-    status TINYINT DEFAULT 1 COMMENT '状态(1:正常 0:禁用)',
     INDEX idx_username (username),
-    INDEX idx_email (email)
+    INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
--- 文章分组表
+-- 分组表（支持层级结构）
 CREATE TABLE IF NOT EXISTS blog_groups (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '分组ID',
-    name VARCHAR(100) NOT NULL UNIQUE COMMENT '分组名称',
-    slug VARCHAR(100) NOT NULL UNIQUE COMMENT 'URL slug',
-    description TEXT COMMENT '分组描述',
-    order_index INT DEFAULT 0 COMMENT '排序序号',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    name VARCHAR(128) NOT NULL COMMENT '分组名称',
+    parent_id BIGINT NULL COMMENT '父分组ID',
+    sort_index INT NOT NULL DEFAULT 0 COMMENT '排序索引',
+    deleted BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否删除',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    INDEX idx_order (order_index)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文章分组表';
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_id) REFERENCES blog_groups(id) ON DELETE SET NULL,
+    INDEX idx_user_id (user_id),
+    INDEX idx_parent_id (parent_id),
+    INDEX idx_sort_index (sort_index),
+    INDEX idx_deleted (deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='分组表';
 
--- 文章表
-CREATE TABLE IF NOT EXISTS blog_articles (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '文章ID',
-    title VARCHAR(200) NOT NULL COMMENT '文章标题',
-    slug VARCHAR(200) NOT NULL UNIQUE COMMENT 'URL slug',
-    summary TEXT COMMENT '摘要',
-    content_type VARCHAR(20) NOT NULL COMMENT '内容类型: markdown/pdf',
-    content_text LONGTEXT COMMENT 'Markdown原始内容',
-    content_url VARCHAR(500) COMMENT 'PDF文件URL',
-    cover_url VARCHAR(500) COMMENT '封面图URL',
-    group_id BIGINT COMMENT '所属分组',
-    tags VARCHAR(500) COMMENT '标签（JSON数组字符串）',
+-- 文档表
+CREATE TABLE IF NOT EXISTS documents (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '文档ID',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    group_id BIGINT NULL COMMENT '分组ID',
+    title VARCHAR(255) NOT NULL COMMENT '标题',
+    type VARCHAR(10) NOT NULL COMMENT '类型: md/pdf',
     status VARCHAR(20) NOT NULL DEFAULT 'draft' COMMENT '状态: draft/published',
-    publish_time TIMESTAMP NULL COMMENT '发布时间',
-    views BIGINT DEFAULT 0 COMMENT '浏览量',
-    comment_count INT DEFAULT 0 COMMENT '评论数',
+    content_md LONGTEXT COMMENT 'Markdown内容',
+    sort_index INT NOT NULL DEFAULT 0 COMMENT '排序索引',
+    deleted BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否删除',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (group_id) REFERENCES blog_groups(id) ON DELETE SET NULL,
-    INDEX idx_slug (slug),
-    INDEX idx_status (status),
-    INDEX idx_publish_time (publish_time),
-    INDEX idx_group (group_id),
-    INDEX idx_views (views)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文章表';
-
--- 评论表
-CREATE TABLE IF NOT EXISTS blog_comments (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '评论ID',
-    article_id BIGINT NOT NULL COMMENT '文章ID',
-    nickname VARCHAR(50) NOT NULL DEFAULT '访客' COMMENT '昵称',
-    content TEXT NOT NULL COMMENT '评论内容',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    FOREIGN KEY (article_id) REFERENCES blog_articles(id) ON DELETE CASCADE,
-    INDEX idx_article (article_id),
-    INDEX idx_created (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评论表';
+    INDEX idx_user_status (user_id, status),
+    INDEX idx_group_sort (user_id, group_id, sort_index),
+    INDEX idx_deleted (deleted),
+    FULLTEXT INDEX idx_title (title)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文档表';
 
 -- ============================================
 -- 初始数据
@@ -117,18 +103,11 @@ CREATE TABLE IF NOT EXISTS blog_comments (
 
 -- 插入默认管理员账号
 -- 用户名：admin
--- 密码：admin123 (BCrypt加密)
+-- 密码：admin123 (BCrypt加密后的值)
 -- ⚠️ 生产环境部署后请立即修改默认密码！
-INSERT INTO users (username, password_hash, email, avatar_url) VALUES 
-('admin', '$2a$10$imeDUw8sOsq94Ho3BpLhMOTzCtJUmypW71gbtoynQ0FLvMZbtnvmm', 'admin@example.com', NULL)
+INSERT INTO users (username, password_hash, nickname, status) VALUES 
+('admin', '$2a$10$imeDUw8sOsq94Ho3BpLhMOTzCtJUmypW71gbtoynQ0FLvMZbtnvmm', '管理员', 1)
 ON DUPLICATE KEY UPDATE username=username;
-
--- 插入默认博客分组
-INSERT INTO blog_groups (name, slug, description, order_index) VALUES 
-('技术分享', 'tech', '技术相关的文章', 1),
-('生活随笔', 'life', '生活感悟与随笔', 2),
-('学习笔记', 'notes', '学习过程中的笔记', 3)
-ON DUPLICATE KEY UPDATE name=name;
 
 -- ============================================
 -- 使用说明
@@ -136,7 +115,8 @@ ON DUPLICATE KEY UPDATE name=name;
 -- 1. 首次部署执行：mysql -u root -p < schema.sql
 -- 2. 默认管理员账号：admin / admin123
 -- 3. 生产环境务必修改默认密码
--- 4. 文件模块通过 user_id 关联用户表
--- 5. 博客文章可通过 content_url 关联文件表（存储 PDF）
+-- 4. 分组支持层级结构（通过 parent_id）
+-- 5. 文档支持 Markdown 和 PDF 两种类型
+-- 6. 所有删除操作为软删除（通过 deleted 字段）
 -- ============================================
 
