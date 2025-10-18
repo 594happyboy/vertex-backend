@@ -11,9 +11,9 @@ import org.springframework.boot.runApplication
         "com.zzy.blog"       // 博客模块
     ]
 )
-class MultifunctionalBackendApplication
+class VertexBackendApplication
 
 fun main(args: Array<String>) {
-    runApplication<MultifunctionalBackendApplication>(*args)
+    runApplication<VertexBackendApplication>(*args)
 }
 

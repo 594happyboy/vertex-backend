@@ -1,5 +1,5 @@
 -- ============================================
--- 多功能后端系统 - 统一数据库初始化脚本
+-- Vertex Backend - 统一数据库初始化脚本
 -- ============================================
 -- 说明：
 -- 1. 使用单数据库架构，通过表名前缀区分不同业务模块
@@ -9,10 +9,10 @@
 -- ============================================
 
 -- 创建数据库
-CREATE DATABASE IF NOT EXISTS multifunctional_backend 
+CREATE DATABASE IF NOT EXISTS vertex_backend 
 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-USE multifunctional_backend;
+USE vertex_backend;
 
 -- ============================================
 -- 文件管理模块
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS blog_comments (
 -- 密码：admin123 (BCrypt加密)
 -- ⚠️ 生产环境部署后请立即修改默认密码！
 INSERT INTO users (username, password_hash, email, avatar_url) VALUES 
-('admin', '$2a$10$EhVi6UxHQSz.a4MEh/LH/uQ/Z0rZ2jSqxX8F/3H9Z5Kt0EYlXv4xW', 'admin@example.com', NULL)
+('admin', '$2a$10$imeDUw8sOsq94Ho3BpLhMOTzCtJUmypW71gbtoynQ0FLvMZbtnvmm', 'admin@example.com', NULL)
 ON DUPLICATE KEY UPDATE username=username;
 
 -- 插入默认博客分组

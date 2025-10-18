@@ -1,6 +1,6 @@
-# 📁 文件管理系统
+# Vertex Backend
 
-> 基于 Spring Boot 3 + Kotlin + Vue 3 的全栈文件管理系统
+> 基于 Spring Boot 3 + Kotlin 的综合性后端系统
 
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.6-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![Kotlin](https://img.shields.io/badge/Kotlin-1.9.25-blue.svg)](https://kotlinlang.org/)
@@ -13,7 +13,7 @@
 ## ✨ 项目特点
 
 - 🚀 **现代化技术栈**：Spring Boot 3 + Kotlin，符合国内主流技术要求
-- 📦 **完整功能**：文件上传、下载、列表查询、删除、MD5秒传
+- 📦 **模块化架构**：文件管理、博客系统等多个功能模块
 - 🎯 **性能优化**：Redis缓存、数据库索引优化、流式传输
 - 🔒 **安全可靠**：文件类型验证、大小限制、全局异常处理
 - 📚 **文档齐全**：详细的技术方案、启动指南、API文档
@@ -162,7 +162,7 @@ mvn spring-boot:run
 ## 📊 项目结构
 
 ```
-multifunctional-backend/
+vertex-backend/
 ├── app-bootstrap/                    # 主启动模块
 │   └── src/main/resources/
 │       ├── application.properties    # 应用配置（统一数据库）
@@ -282,7 +282,7 @@ docker-compose logs -f
 ### 服务访问
 
 - **MySQL**: localhost:3306 (root/root123)
-  - 数据库名: `multifunctional_backend` (统一数据库架构)
+  - 数据库名: `vertex_backend` (统一数据库架构)
 - **Redis**: localhost:6379
 - **MinIO控制台**: http://localhost:9001 (admin/admin123)
 - **MinIO API**: http://localhost:9000

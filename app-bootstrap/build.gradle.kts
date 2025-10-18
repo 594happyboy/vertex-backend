@@ -26,6 +26,6 @@ dependencies {
 }
 
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
-    archiveFileName.set("multifunctional-backend.jar")
+    archiveFileName.set("vertex-backend.jar")
 }
 
