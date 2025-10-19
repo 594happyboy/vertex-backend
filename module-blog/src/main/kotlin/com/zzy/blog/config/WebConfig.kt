@@ -20,7 +20,6 @@ class WebConfig(
             .addPathPatterns("/api/**")
             .excludePathPatterns(
                 "/api/auth/login",      // 登录接口
-                "/api/auth/visitor",    // 游客令牌接口
                 "/doc.html",            // Swagger文档
                 "/swagger-ui/**",       // Swagger UI
                 "/v3/api-docs/**",      // OpenAPI文档

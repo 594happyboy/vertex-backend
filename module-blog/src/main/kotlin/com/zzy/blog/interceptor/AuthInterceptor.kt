@@ -22,6 +22,10 @@ class AuthInterceptor(
     
     private val logger = LoggerFactory.getLogger(AuthInterceptor::class.java)
     
+    companion object {
+        const val NEW_TOKEN_HEADER = "X-New-Token"  // 新token的响应头名称
+    }
+    
     override fun preHandle(
         request: HttpServletRequest,
         response: HttpServletResponse,
@@ -39,35 +43,27 @@ class AuthInterceptor(
             // 解析令牌
             val role = jwtUtil.getRoleFromToken(token)
             
-            when (role) {
-                "USER" -> {
-                    val userId = jwtUtil.getUserIdFromToken(token)
-                    if (userId != null) {
-                        AuthContextHolder.setAuthUser(
-                            AuthUser(
-                                role = "USER",
-                                currentUserId = userId,
-                                targetUserId = null
-                            )
+            if (role == "USER") {
+                val userId = jwtUtil.getUserIdFromToken(token)
+                if (userId != null) {
+                    AuthContextHolder.setAuthUser(
+                        AuthUser(
+                            userId = userId
                         )
-                        logger.debug("设置用户上下文: userId={}", userId)
-                    }
+                    )
+                    logger.debug("设置用户上下文: userId={}", userId)
                 }
-                "VISITOR" -> {
-                    val targetUserId = jwtUtil.getTargetUserIdFromToken(token)
-                    if (targetUserId != null) {
-                        AuthContextHolder.setAuthUser(
-                            AuthUser(
-                                role = "VISITOR",
-                                currentUserId = null,
-                                targetUserId = targetUserId
-                            )
-                        )
-                        logger.debug("设置游客上下文: targetUserId={}", targetUserId)
-                    }
-                }
-                else -> {
-                    throw UnauthorizedException("未知的角色类型")
+            } else {
+                throw UnauthorizedException("未知的角色类型")
+            }
+            
+            // 检查是否需要刷新token
+            if (jwtUtil.shouldRefreshToken(token)) {
+                val newToken = jwtUtil.refreshToken(token)
+                if (newToken != null) {
+                    // 将新token放入响应头
+                    response.setHeader(NEW_TOKEN_HEADER, newToken)
+                    logger.debug("Token即将过期，已自动刷新并返回新token")
                 }
             }
         }

@@ -23,21 +23,6 @@ data class LoginResponse(
 )
 
 /**
- * 游客令牌请求
- */
-data class VisitorTokenRequest(
-    val targetUser: String? = null
-)
-
-/**
- * 游客令牌响应
- */
-data class VisitorTokenResponse(
-    val visitorToken: String,
-    val targetUser: UserInfo
-)
-
-/**
  * 用户信息
  */
 data class UserInfo(

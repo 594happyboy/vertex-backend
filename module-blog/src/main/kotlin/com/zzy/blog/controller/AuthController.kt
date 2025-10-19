@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*
  * @author ZZY
  * @date 2025-10-18
  */
-@Tag(name = "认证管理", description = "用户登录、游客令牌等认证相关接口")
+@Tag(name = "认证管理", description = "用户登录等认证相关接口")
 @RestController
 @RequestMapping("/api/auth")
 class AuthController(
@@ -27,16 +27,6 @@ class AuthController(
     fun login(@RequestBody request: LoginRequest): ApiResponse<LoginResponse> {
         val response = authService.login(request)
         return ApiResponse.success(response, "登录成功")
-    }
-    
-    /**
-     * 获取游客令牌
-     */
-    @Operation(summary = "获取游客令牌", description = "获取只读访问令牌，用于访问已发布的内容")
-    @PostMapping("/visitor")
-    fun getVisitorToken(@RequestBody request: VisitorTokenRequest): ApiResponse<VisitorTokenResponse> {
-        val response = authService.getVisitorToken(request)
-        return ApiResponse.success(response, "获取游客令牌成功")
     }
     
     /**

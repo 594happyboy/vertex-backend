@@ -46,26 +46,22 @@ class DirectoryTreeService(
         val authUser = AuthContextHolder.getAuthUser()
             ?: throw ForbiddenException("未登录")
 
-        // 根据用户角色确定目标用户ID
-        val targetUserId = when (authUser.role) {
-            "USER" -> authUser.currentUserId ?: throw ForbiddenException("无效的角色")
-            "VISITOR" -> authUser.targetUserId ?: throw ForbiddenException("游客令牌无效")
-            else -> throw ForbiddenException("无效的角色")
-        }
+        // 获取当前用户ID
+        val userId = authUser.userId
 
         // 构建缓存键
-        val cacheKey = buildCacheKey(targetUserId, authUser.role)
+        val cacheKey = buildCacheKey(userId)
 
         // 尝试从缓存获取
         val cachedTree = getFromCache(cacheKey)
         if (cachedTree != null) {
-            logger.debug("从缓存获取目录树: userId={}, role={}", targetUserId, authUser.role)
+            logger.debug("从缓存获取目录树: userId={}", userId)
             return DirectoryTreeResponse(tree = cachedTree, cached = true)
         }
 
         // 从数据库加载
-        logger.debug("从数据库加载目录树: userId={}, role={}", targetUserId, authUser.role)
-        val tree = buildDirectoryTree(targetUserId, authUser.role)
+        logger.debug("从数据库加载目录树: userId={}", userId)
+        val tree = buildDirectoryTree(userId)
 
         // 保存到缓存
         saveToCache(cacheKey, tree)
@@ -76,7 +72,7 @@ class DirectoryTreeService(
     /**
      * 从数据库构建目录树
      */
-    private fun buildDirectoryTree(userId: Long, role: String): List<DirectoryTreeNode> {
+    private fun buildDirectoryTree(userId: Long): List<DirectoryTreeNode> {
         // 1. 查询所有分组
         val allGroups = groupMapper.selectList(
             QueryWrapper<Group>()
@@ -85,17 +81,12 @@ class DirectoryTreeService(
         )
 
         // 2. 查询所有文档
-        val documentWrapper = QueryWrapper<Document>()
-            .eq("user_id", userId)
-            .orderByAsc("sort_index")
-            .orderByDesc("created_at")
-
-        // 如果是游客，只能看到已发布的文档
-        if (role == "VISITOR") {
-            documentWrapper.eq("status", DocStatus.PUBLISHED.value)
-        }
-
-        val allDocuments = documentMapper.selectList(documentWrapper)
+        val allDocuments = documentMapper.selectList(
+            QueryWrapper<Document>()
+                .eq("user_id", userId)
+                .orderByAsc("sort_index")
+                .orderByDesc("created_at")
+        )
 
         // 3. 转换为节点
         val groupNodes = allGroups.associateBy(
@@ -172,8 +163,8 @@ class DirectoryTreeService(
     /**
      * 构建缓存键
      */
-    private fun buildCacheKey(userId: Long, role: String): String {
-        return "$CACHE_KEY_PREFIX${userId}:$role"
+    private fun buildCacheKey(userId: Long): String {
+        return "$CACHE_KEY_PREFIX$userId"
     }
 
     /**
@@ -209,16 +200,12 @@ class DirectoryTreeService(
     }
 
     /**
-     * 清除指定用户的所有缓存
+     * 清除指定用户的缓存
      */
     fun clearCache(userId: Long) {
         try {
-            val userKey = buildCacheKey(userId, "USER")
-            val visitorKey = buildCacheKey(userId, "VISITOR")
-            
-            stringRedisTemplate.delete(userKey)
-            stringRedisTemplate.delete(visitorKey)
-            
+            val cacheKey = buildCacheKey(userId)
+            stringRedisTemplate.delete(cacheKey)
             logger.info("清除目录树缓存: userId={}", userId)
         } catch (e: Exception) {
             logger.error("清除缓存失败: {}", e.message, e)

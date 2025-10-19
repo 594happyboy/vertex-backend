@@ -36,21 +36,11 @@ class DocumentService(
         // 构建查询条件
         val wrapper = QueryWrapper<Document>()
         
-        // 根据角色设置查询条件
-        when (authUser.role) {
-            "USER" -> {
-                // 用户只能查询自己的文档
-                wrapper.eq("user_id", authUser.currentUserId)
-                
-                // 状态过滤
-                request.status?.let { wrapper.eq("status", it) }
-            }
-            "VISITOR" -> {
-                // 游客只能查询目标用户的已发布文档
-                wrapper.eq("user_id", authUser.targetUserId)
-                    .eq("status", DocStatus.PUBLISHED.value)
-            }
-        }
+        // 用户只能查询自己的文档
+        wrapper.eq("user_id", authUser.userId)
+        
+        // 状态过滤
+        request.status?.let { wrapper.eq("status", it) }
         
         // 分组过滤
         request.groupId?.let { wrapper.eq("group_id", it) }
@@ -101,18 +91,8 @@ class DocumentService(
             ?: throw ResourceNotFoundException("文档不存在")
         
         // 权限检查
-        when (authUser.role) {
-            "USER" -> {
-                if (document.userId != authUser.currentUserId) {
-                    throw ForbiddenException("无权访问此文档")
-                }
-            }
-            "VISITOR" -> {
-                if (document.userId != authUser.targetUserId 
-                    || document.status != DocStatus.PUBLISHED.value) {
-                    throw ForbiddenException("无权访问此文档")
-                }
-            }
+        if (document.userId != authUser.userId) {
+            throw ForbiddenException("无权访问此文档")
         }
         
         return DocumentDetail.fromEntity(document)
@@ -215,10 +195,6 @@ class DocumentService(
      * 获取当前用户ID
      */
     private fun getCurrentUserId(): Long {
-        // 游客不能操作文档
-        if (AuthContextHolder.isVisitor()) {
-            throw ForbiddenException("游客无权操作文档")
-        }
         return AuthContextHolder.getCurrentUserId()
     }
 }

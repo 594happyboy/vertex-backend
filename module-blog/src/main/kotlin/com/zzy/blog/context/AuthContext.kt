@@ -6,9 +6,7 @@ package com.zzy.blog.context
  * @date 2025-10-18
  */
 data class AuthUser(
-    val role: String,           // USER 或 VISITOR
-    val currentUserId: Long?,   // 当前登录用户ID（USER角色）
-    val targetUserId: Long?     // 目标用户ID（VISITOR角色）
+    val userId: Long            // 当前登录用户ID
 )
 
 /**
@@ -39,25 +37,11 @@ object AuthContextHolder {
     }
     
     /**
-     * 获取当前用户ID（仅USER角色）
+     * 获取当前用户ID
      */
     fun getCurrentUserId(): Long {
         val authUser = getAuthUser() ?: throw IllegalStateException("未登录")
-        return authUser.currentUserId ?: throw IllegalStateException("无效的用户令牌")
-    }
-    
-    /**
-     * 检查是否为游客
-     */
-    fun isVisitor(): Boolean {
-        return getAuthUser()?.role == "VISITOR"
-    }
-    
-    /**
-     * 检查是否为已登录用户
-     */
-    fun isUser(): Boolean {
-        return getAuthUser()?.role == "USER"
+        return authUser.userId
     }
 }
 

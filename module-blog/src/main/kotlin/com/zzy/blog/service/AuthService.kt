@@ -61,36 +61,6 @@ class AuthService(
     }
     
     /**
-     * 获取游客令牌
-     */
-    fun getVisitorToken(request: VisitorTokenRequest): VisitorTokenResponse {
-        // 如果未指定目标用户，查询第一个用户
-        val targetUser = if (request.targetUser != null) {
-            userMapper.selectOne(
-                QueryWrapper<User>().eq("username", request.targetUser)
-            ) ?: throw UserNotFoundException("目标用户不存在")
-        } else {
-            userMapper.selectList(
-                QueryWrapper<User>().eq("status", 1).last("LIMIT 1")
-            ).firstOrNull() ?: throw UserNotFoundException("没有可用的用户")
-        }
-        
-        // 生成游客令牌
-        val token = jwtUtil.generateVisitorToken(targetUser.id!!, targetUser.username)
-        
-        logger.info("生成游客令牌，目标用户: {}", targetUser.username)
-        
-        return VisitorTokenResponse(
-            visitorToken = token,
-            targetUser = UserInfo(
-                id = targetUser.id!!,
-                username = targetUser.username,
-                nickname = targetUser.nickname
-            )
-        )
-    }
-    
-    /**
      * 刷新令牌（可选功能）
      */
     fun refreshToken(request: RefreshTokenRequest): RefreshTokenResponse {

@@ -23,6 +23,9 @@ class JwtUtil {
     @Value("\${jwt.expiration:7200000}") // 默认2小时
     private var expiration: Long = 7200000
     
+    @Value("\${jwt.refresh-threshold:1800000}") // 默认30分钟，当剩余时间少于此值时自动刷新
+    private var refreshThreshold: Long = 1800000
+    
     @Value("\${jwt.issuer:vertex-backend}")
     private lateinit var issuer: String
     
@@ -39,27 +42,6 @@ class JwtUtil {
             .setSubject(userId.toString())
             .claim("username", username)
             .claim("role", "USER")
-            .setIssuer(issuer)
-            .setIssuedAt(now)
-            .setExpiration(expiryDate)
-            .signWith(key, SignatureAlgorithm.HS256)
-            .compact()
-    }
-    
-    /**
-     * 生成游客令牌
-     */
-    fun generateVisitorToken(targetUserId: Long, targetUsername: String): String {
-        val now = Date()
-        val expiryDate = Date(now.time + expiration)
-        
-        val key = Keys.hmacShaKeyFor(secret.toByteArray(StandardCharsets.UTF_8))
-        
-        return Jwts.builder()
-            .setSubject("visitor:$targetUserId")
-            .claim("targetUserId", targetUserId)
-            .claim("targetUsername", targetUsername)
-            .claim("role", "VISITOR")
             .setIssuer(issuer)
             .setIssuedAt(now)
             .setExpiration(expiryDate)
@@ -101,12 +83,7 @@ class JwtUtil {
     fun getUserIdFromToken(token: String): Long? {
         return try {
             val claims = parseToken(token) ?: return null
-            val subject = claims.subject
-            if (subject.startsWith("visitor:")) {
-                null
-            } else {
-                subject.toLongOrNull()
-            }
+            claims.subject.toLongOrNull()
         } catch (e: Exception) {
             null
         }
@@ -125,14 +102,40 @@ class JwtUtil {
     }
     
     /**
-     * 从游客令牌获取目标用户ID
+     * 检查令牌是否需要刷新
+     * @return true 如果令牌还有效但即将过期（剩余时间 < refreshThreshold）
      */
-    fun getTargetUserIdFromToken(token: String): Long? {
+    fun shouldRefreshToken(token: String): Boolean {
         return try {
-            val claims = parseToken(token) ?: return null
+            val claims = parseToken(token) ?: return false
+            val expiration = claims.expiration
+            val now = Date()
+            
+            // 如果已过期，返回false
+            if (expiration.before(now)) {
+                return false
+            }
+            
+            // 如果剩余时间少于阈值，需要刷新
+            val remainingTime = expiration.time - now.time
+            remainingTime < refreshThreshold
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * 刷新令牌（基于旧令牌生成新令牌）
+     */
+    fun refreshToken(oldToken: String): String? {
+        return try {
+            val claims = parseToken(oldToken) ?: return null
             val role = claims.get("role", String::class.java)
-            if (role == "VISITOR") {
-                claims.get("targetUserId", java.lang.Long::class.java)?.toLong()
+            
+            if (role == "USER") {
+                val userId = getUserIdFromToken(oldToken) ?: return null
+                val username = claims.get("username", String::class.java) ?: return null
+                generateUserToken(userId, username)
             } else {
                 null
             }

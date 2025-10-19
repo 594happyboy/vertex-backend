@@ -206,10 +206,6 @@ class GroupService(
      * 获取当前用户ID
      */
     private fun getCurrentUserId(): Long {
-        // 游客不能操作分组
-        if (AuthContextHolder.isVisitor()) {
-            throw ForbiddenException("游客无权操作分组")
-        }
         return AuthContextHolder.getCurrentUserId()
     }
 }

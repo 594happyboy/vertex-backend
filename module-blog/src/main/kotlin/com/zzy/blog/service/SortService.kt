@@ -95,9 +95,6 @@ class SortService(
      * 获取当前用户ID
      */
     private fun getCurrentUserId(): Long {
-        if (AuthContextHolder.isVisitor()) {
-            throw ForbiddenException("游客无权操作排序")
-        }
         return AuthContextHolder.getCurrentUserId()
     }
 }
