@@ -96,3 +96,36 @@ data class DocumentListResponse(
     val total: Long
 )
 
+/**
+ * 批量上传请求参数（通过query parameter传递）
+ * 文件通过MultipartFile上传
+ */
+data class BatchUploadRequest(
+    val parentGroupId: Long? = null  // 父分组ID，null表示根目录
+)
+
+/**
+ * 批量上传结果项
+ */
+data class BatchUploadResultItem(
+    val type: String,  // group 或 document
+    val name: String,
+    val path: String,  // 在zip中的路径
+    val id: Long?,     // 创建后的ID
+    val success: Boolean,
+    val message: String? = null
+)
+
+/**
+ * 批量上传响应
+ */
+data class BatchUploadResponse(
+    val success: Boolean,
+    val totalFiles: Int,
+    val totalFolders: Int,
+    val successCount: Int,
+    val failedCount: Int,
+    val items: List<BatchUploadResultItem>,
+    val message: String
+)
+

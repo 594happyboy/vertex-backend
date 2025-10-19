@@ -1,11 +1,14 @@
 package com.zzy.blog.controller
 
 import com.zzy.blog.dto.*
+import com.zzy.blog.service.BatchUploadService
 import com.zzy.blog.service.DocumentService
 import com.zzy.common.dto.ApiResponse
 import io.swagger.v3.oas.annotations.Operation
+import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.tags.Tag
 import org.springframework.web.bind.annotation.*
+import org.springframework.web.multipart.MultipartFile
 
 /**
  * 文档控制器
@@ -16,7 +19,8 @@ import org.springframework.web.bind.annotation.*
 @RestController
 @RequestMapping("/api/documents")
 class DocumentController(
-    private val documentService: DocumentService
+    private val documentService: DocumentService,
+    private val batchUploadService: BatchUploadService
 ) {
     
     /**
@@ -83,6 +87,33 @@ class DocumentController(
     fun deleteDocument(@PathVariable id: Long): ApiResponse<Nothing> {
         documentService.deleteDocument(id)
         return ApiResponse.success(message = "删除成功")
+    }
+    
+    /**
+     * 批量上传
+     */
+    @Operation(
+        summary = "批量上传文档",
+        description = """
+            上传一个ZIP压缩包进行批量导入。
+            - ZIP包内的文件夹会被创建为分组（Group）
+            - 支持嵌套文件夹结构
+            - 文件会被创建为文档（Document），支持 .md, .txt, .pdf 格式
+            - parentGroupId 指定父分组ID，不传或传null表示在根目录上传
+            - 同一父分组下的同名分组会自动合并
+            - 如果处理失败会自动回滚所有更改
+        """
+    )
+    @PostMapping("/batch-upload")
+    fun batchUpload(
+        @Parameter(description = "ZIP压缩包文件", required = true)
+        @RequestParam("file") file: MultipartFile,
+        
+        @Parameter(description = "父分组ID，不传或传null表示在根目录上传")
+        @RequestParam("parentGroupId", required = false) parentGroupId: Long?
+    ): ApiResponse<BatchUploadResponse> {
+        val result = batchUploadService.batchUpload(file, parentGroupId)
+        return ApiResponse.success(result, result.message)
     }
 }
 
