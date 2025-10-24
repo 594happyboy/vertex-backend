@@ -96,4 +96,29 @@ interface FileMapper : BaseMapper<FileMetadata> {
         </script>
     """)
     fun batchSoftDelete(ids: List<Long>): Int
+    
+    /**
+     * 查询回收站文件列表（手动查询已删除的记录）
+     */
+    @Select("""
+        SELECT * FROM file_metadata 
+        WHERE user_id = #{userId} AND deleted = 1 AND deleted_at IS NOT NULL
+        ORDER BY deleted_at DESC
+        LIMIT #{offset}, #{limit}
+    """)
+    fun selectRecycleBinFiles(
+        @Param("userId") userId: Long,
+        @Param("offset") offset: Long,
+        @Param("limit") limit: Long
+    ): List<FileMetadata>
+    
+    /**
+     * 统计回收站文件数量
+     */
+    @Select("""
+        SELECT COUNT(*) 
+        FROM file_metadata 
+        WHERE user_id = #{userId} AND deleted = 1 AND deleted_at IS NOT NULL
+    """)
+    fun countRecycleBinFiles(userId: Long): Long
 }

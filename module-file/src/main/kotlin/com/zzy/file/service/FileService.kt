@@ -528,18 +528,14 @@ class FileService(
      * 获取回收站文件列表
      */
     fun getRecycleBinFiles(userId: Long, page: Int = 1, size: Int = 10): FileListResponse {
-        val queryWrapper = QueryWrapper<FileMetadata>()
-            .eq("user_id", userId)
-            .eq("deleted", true)
-            .isNotNull("deleted_at")
-            .orderByDesc("deleted_at")
+        // 使用自定义查询方法，绕过 MyBatis-Plus 的 @TableLogic 机制
+        val offset = (page - 1) * size.toLong()
+        val files = fileMapper.selectRecycleBinFiles(userId, offset, size.toLong())
+        val total = fileMapper.countRecycleBinFiles(userId)
         
-        val pageObj = Page<FileMetadata>(page.toLong(), size.toLong())
-        val pageResult = fileMapper.selectPage(pageObj, queryWrapper)
-        
-        val fileResponses = pageResult.records.map { FileResponse.fromEntity(it) }
+        val fileResponses = files.map { FileResponse.fromEntity(it) }
         return FileListResponse(
-            total = pageResult.total,
+            total = total,
             page = page,
             size = size,
             files = fileResponses
