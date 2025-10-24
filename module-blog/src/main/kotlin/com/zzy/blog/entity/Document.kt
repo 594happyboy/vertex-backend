@@ -36,7 +36,6 @@ data class Document(
     var sortIndex: Int = 0,
     
     /** 是否删除 */
-    @TableLogic
     var deleted: Boolean = false,
     
     /** 创建时间 */

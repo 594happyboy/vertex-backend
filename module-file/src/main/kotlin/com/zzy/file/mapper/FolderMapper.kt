@@ -8,12 +8,37 @@ import org.apache.ibatis.annotations.Select
 import org.apache.ibatis.annotations.Update
 
 /**
- * 文件夹Mapper
+ * 文件夹Mapper（手动管理软删除）
  * @author ZZY
  * @date 2025-10-23
  */
 @Mapper
 interface FolderMapper : BaseMapper<FileFolder> {
+    
+    /**
+     * 软删除文件夹
+     */
+    @Update("""
+        UPDATE file_folders 
+        SET deleted = 1, deleted_at = NOW(), updated_at = NOW()
+        WHERE id = #{id} AND deleted = 0
+    """)
+    fun softDelete(id: Long): Int
+    
+    /**
+     * 批量软删除文件夹
+     */
+    @Update("""
+        <script>
+            UPDATE file_folders 
+            SET deleted = 1, deleted_at = NOW(), updated_at = NOW()
+            WHERE deleted = 0 AND id IN
+            <foreach collection="ids" item="id" open="(" close=")" separator=",">
+                #{id}
+            </foreach>
+        </script>
+    """)
+    fun batchSoftDelete(ids: List<Long>): Int
     
     /**
      * 查询某个文件夹下的文件数量

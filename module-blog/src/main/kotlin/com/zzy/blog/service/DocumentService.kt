@@ -40,11 +40,12 @@ class DocumentService(
         val authUser = AuthContextHolder.getAuthUser()
             ?: throw ForbiddenException("未登录")
         
-        // 构建查询条件
+        // 构建查询条件（手动过滤已删除的记录）
         val wrapper = QueryWrapper<Document>()
         
         // 用户只能查询自己的文档
         wrapper.eq("user_id", authUser.userId)
+            .eq("deleted", false)
         
         // 分组过滤
         request.groupId?.let { wrapper.eq("group_id", it) }
@@ -256,7 +257,7 @@ class DocumentService(
         }
         
         // 软删除文档记录
-        documentMapper.deleteById(id)
+        documentMapper.softDelete(id)
         logger.info("删除文档: id={}", id)
         
         // 清除缓存

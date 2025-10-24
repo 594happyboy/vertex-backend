@@ -181,9 +181,10 @@ class FileService(
             DEFAULT_SORT_FIELD
         }
         
-        // 构建查询条件（@TableLogic 会自动过滤已删除的记录）
+        // 构建查询条件（手动过滤已删除的记录）
         val queryWrapper = QueryWrapper<FileMetadata>()
             .eq("user_id", userId)
+            .eq("deleted", false)
             .apply {
                 // 文件夹筛选
                 if (folderId != null) {
@@ -415,14 +416,8 @@ class FileService(
             throw BusinessException(404, "文件已被删除")
         }
         
-        // 软删除（先更新 deleted_at，再使用 MyBatis-Plus 的删除方法设置 deleted 字段）
-        val updateWrapper = com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<FileMetadata>()
-        updateWrapper.eq("id", fileId)
-        updateWrapper.set("deleted_at", LocalDateTime.now())
-        fileMapper.update(null, updateWrapper)
-        
-        // 使用 MyBatis-Plus 的删除方法来正确设置 deleted 字段
-        fileMapper.deleteById(fileId)
+        // 软删除
+        fileMapper.softDelete(fileId)
         
         // 清除缓存
         clearFileInfoCache(fileId)
@@ -463,7 +458,8 @@ class FileService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun permanentlyDeleteFile(fileId: Long, userId: Long): Boolean {
-        val file = fileMapper.selectById(fileId)
+        // 使用 selectByIdIncludeDeleted 查询包括已删除的文件
+        val file = fileMapper.selectByIdIncludeDeleted(fileId)
             ?: throw BusinessException(404, "文件不存在")
         
         // 权限检查
@@ -480,7 +476,7 @@ class FileService(
         }
         
         // 从数据库物理删除
-        fileMapper.deleteById(fileId)
+        fileMapper.hardDelete(fileId)
         
         // 清除缓存
         clearFileInfoCache(fileId)
@@ -496,7 +492,8 @@ class FileService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun restoreFile(fileId: Long, userId: Long): Boolean {
-        val file = fileMapper.selectById(fileId)
+        // 使用 selectByIdIncludeDeleted 查询包括已删除的文件
+        val file = fileMapper.selectByIdIncludeDeleted(fileId)
             ?: throw BusinessException(404, "文件不存在")
         
         // 权限检查
@@ -510,10 +507,7 @@ class FileService(
         }
         
         // 恢复文件
-        file.deleted = false
-        file.deletedAt = null
-        file.updateTime = LocalDateTime.now()
-        fileMapper.updateById(file)
+        fileMapper.restore(fileId)
         
         // 清除缓存
         clearFileInfoCache(fileId)
@@ -528,7 +522,7 @@ class FileService(
      * 获取回收站文件列表
      */
     fun getRecycleBinFiles(userId: Long, page: Int = 1, size: Int = 10): FileListResponse {
-        // 使用自定义查询方法，绕过 MyBatis-Plus 的 @TableLogic 机制
+        // 查询已删除的文件（deleted = 1）
         val offset = (page - 1) * size.toLong()
         val files = fileMapper.selectRecycleBinFiles(userId, offset, size.toLong())
         val total = fileMapper.countRecycleBinFiles(userId)
@@ -560,7 +554,7 @@ class FileService(
         expiredFiles.forEach { file ->
             try {
                 storageService.deleteFile(file.storedName ?: "")
-                fileMapper.deleteById(file.id!!)
+                fileMapper.hardDelete(file.id!!)
                 cleanedCount++
                 logger.info("清理过期文件: fileId={}, fileName={}, deletedAt={}", 
                     file.id, file.fileName, file.deletedAt)
@@ -585,10 +579,11 @@ class FileService(
         val typeDistribution = fileMapper.getFileTypeDistribution(userId)
             .associate { it["file_extension"].toString() to (it["count"] as Number).toInt() }
         
-        // 最近上传的文件（@TableLogic 会自动过滤已删除的记录）
+        // 最近上传的文件（手动过滤已删除的记录）
         val recentFiles = fileMapper.selectList(
             QueryWrapper<FileMetadata>()
                 .eq("user_id", userId)
+                .eq("deleted", false)
                 .orderByDesc("upload_time")
                 .last("LIMIT 5")
         )

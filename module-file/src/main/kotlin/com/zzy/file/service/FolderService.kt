@@ -47,10 +47,11 @@ class FolderService(
             return cached
         }
         
-        // 查询所有未删除的文件夹（@TableLogic 会自动过滤已删除的记录）
+        // 查询所有未删除的文件夹（手动过滤已删除的记录）
         val allFolders = folderMapper.selectList(
             QueryWrapper<FileFolder>()
                 .eq("user_id", userId)
+                .eq("deleted", false)
                 .orderByAsc("sort_index")
         )
         
@@ -157,11 +158,12 @@ class FolderService(
             }
         }
         
-        // 检查同名文件夹（@TableLogic 会自动过滤已删除的记录）
+        // 检查同名文件夹（手动过滤已删除的记录）
         val existingFolder = folderMapper.selectOne(
             QueryWrapper<FileFolder>()
                 .eq("user_id", userId)
                 .eq("name", request.name)
+                .eq("deleted", false)
                 .apply {
                     if (request.parentId != null) {
                         eq("parent_id", request.parentId)
@@ -221,11 +223,12 @@ class FolderService(
         var updated = false
         
         if (request.name != null && request.name != folder.name) {
-            // 检查同名（@TableLogic 会自动过滤已删除的记录）
+            // 检查同名（手动过滤已删除的记录）
             val existingFolder = folderMapper.selectOne(
                 QueryWrapper<FileFolder>()
                     .eq("user_id", userId)
                     .eq("name", request.name)
+                    .eq("deleted", false)
                     .apply {
                         if (folder.parentId != null) {
                             eq("parent_id", folder.parentId)
@@ -325,51 +328,26 @@ class FolderService(
         if (recursive) {
             val descendantIds = folderMapper.getDescendantIds(folderId)
             
-            // 先更新 deleted_at 字段（手动更新非逻辑删除字段）
-            descendantIds.forEach { id ->
-                val subFolder = folderMapper.selectById(id)
-                if (subFolder != null && !subFolder.deleted) {
-                    // 只更新 deletedAt，不更新 deleted 字段
-                    val updateWrapper = UpdateWrapper<FileFolder>()
-                    updateWrapper.eq("id", id)
-                    updateWrapper.set("deleted_at", LocalDateTime.now())
-                    folderMapper.update(null, updateWrapper)
-                }
-            }
-            
-            // 使用 MyBatis-Plus 的删除方法来设置 deleted 字段
+            // 批量软删除所有子文件夹
             if (descendantIds.isNotEmpty()) {
-                folderMapper.deleteBatchIds(descendantIds)
+                folderMapper.batchSoftDelete(descendantIds)
             }
             
-            // 软删除文件夹中的所有文件（@TableLogic 会自动过滤已删除的记录）
+            // 软删除文件夹中的所有文件（手动过滤已删除的记录）
             val files = fileMapper.selectList(
                 QueryWrapper<com.zzy.file.entity.FileMetadata>()
                     .`in`("folder_id", descendantIds)
+                    .eq("deleted", false)
             )
             
             if (files.isNotEmpty()) {
-                // 先更新 deleted_at 字段
-                files.forEach { file ->
-                    val updateWrapper = com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<com.zzy.file.entity.FileMetadata>()
-                    updateWrapper.eq("id", file.id)
-                    updateWrapper.set("deleted_at", LocalDateTime.now())
-                    fileMapper.update(null, updateWrapper)
-                }
-                
-                // 使用 MyBatis-Plus 的删除方法来设置 deleted 字段
-                fileMapper.deleteBatchIds(files.map { it.id!! })
+                // 批量软删除文件
+                fileMapper.batchSoftDelete(files.map { it.id!! })
             }
         }
         
-        // 软删除文件夹（先更新 deleted_at，再标记删除）
-        val updateWrapper = UpdateWrapper<FileFolder>()
-        updateWrapper.eq("id", folderId)
-        updateWrapper.set("deleted_at", LocalDateTime.now())
-        folderMapper.update(null, updateWrapper)
-        
-        // 使用 MyBatis-Plus 的删除方法来设置 deleted 字段
-        folderMapper.deleteById(folderId)
+        // 软删除文件夹
+        folderMapper.softDelete(folderId)
         
         // 清除缓存
         clearFolderCache(userId)

@@ -8,7 +8,7 @@ import org.apache.ibatis.annotations.Select
 import org.apache.ibatis.annotations.Update
 
 /**
- * 文件Mapper（重构版）
+ * 文件Mapper（重构版，手动管理软删除）
  * @author ZZY
  * @date 2025-10-23
  */
@@ -24,6 +24,16 @@ interface FileMapper : BaseMapper<FileMetadata> {
         LIMIT 1
     """)
     fun selectByMd5(md5: String): FileMetadata?
+    
+    /**
+     * 软删除文件
+     */
+    @Update("""
+        UPDATE file_metadata 
+        SET deleted = 1, deleted_at = NOW(), update_time = NOW()
+        WHERE id = #{id} AND deleted = 0
+    """)
+    fun softDelete(id: Long): Int
     
     /**
      * 增加下载次数
@@ -89,13 +99,23 @@ interface FileMapper : BaseMapper<FileMetadata> {
         <script>
             UPDATE file_metadata 
             SET deleted = 1, deleted_at = NOW(), update_time = NOW()
-            WHERE id IN
+            WHERE deleted = 0 AND id IN
             <foreach collection="ids" item="id" open="(" close=")" separator=",">
                 #{id}
             </foreach>
         </script>
     """)
     fun batchSoftDelete(ids: List<Long>): Int
+    
+    /**
+     * 恢复文件
+     */
+    @Update("""
+        UPDATE file_metadata 
+        SET deleted = 0, deleted_at = NULL, update_time = NOW()
+        WHERE id = #{id} AND deleted = 1
+    """)
+    fun restore(id: Long): Int
     
     /**
      * 查询回收站文件列表（手动查询已删除的记录）
@@ -121,4 +141,22 @@ interface FileMapper : BaseMapper<FileMetadata> {
         WHERE user_id = #{userId} AND deleted = 1 AND deleted_at IS NOT NULL
     """)
     fun countRecycleBinFiles(userId: Long): Long
+    
+    /**
+     * 根据ID查询文件（包括已删除的文件）
+     */
+    @Select("""
+        SELECT * FROM file_metadata 
+        WHERE id = #{id}
+    """)
+    fun selectByIdIncludeDeleted(id: Long): FileMetadata?
+    
+    /**
+     * 物理删除文件（真正的 DELETE 语句）
+     */
+    @Update("""
+        DELETE FROM file_metadata 
+        WHERE id = #{id}
+    """)
+    fun hardDelete(id: Long): Int
 }

@@ -51,7 +51,6 @@ data class FileMetadata(
     var description: String? = null,
     
     /** 是否删除（软删除） */
-    @TableLogic
     var deleted: Boolean = false,
     
     /** 删除时间 */

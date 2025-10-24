@@ -36,10 +36,11 @@ class GroupService(
     fun getGroupTree(rootOnly: Boolean = false): List<GroupResponse> {
         val userId = getCurrentUserId()
         
-        // 查询所有分组
+        // 查询所有分组（手动过滤已删除的记录）
         val allGroups = groupMapper.selectList(
             QueryWrapper<Group>()
                 .eq("user_id", userId)
+                .eq("deleted", false)
                 .orderByAsc("sort_index")
         )
         
@@ -159,11 +160,12 @@ class GroupService(
      * 递归删除分组及其子分组
      */
     private fun deleteGroupRecursive(groupId: Long, userId: Long) {
-        // 1. 查找所有直接子分组
+        // 1. 查找所有直接子分组（手动过滤已删除的记录）
         val childGroups = groupMapper.selectList(
             QueryWrapper<Group>()
                 .eq("parent_id", groupId)
                 .eq("user_id", userId)
+                .eq("deleted", false)
         )
         
         // 2. 递归删除所有子分组
@@ -171,11 +173,12 @@ class GroupService(
             child.id?.let { deleteGroupRecursive(it, userId) }
         }
         
-        // 3. 查询并删除当前分组下的所有文档（包括关联文件）
+        // 3. 查询并删除当前分组下的所有文档（手动过滤已删除的记录）
         val documents = documentMapper.selectList(
             QueryWrapper<Document>()
                 .eq("group_id", groupId)
                 .eq("user_id", userId)
+                .eq("deleted", false)
         )
         
         documents.forEach { doc ->
@@ -191,15 +194,13 @@ class GroupService(
             }
         }
         
-        // 删除文档记录
-        documentMapper.delete(
-            QueryWrapper<Document>()
-                .eq("group_id", groupId)
-                .eq("user_id", userId)
-        )
+        // 批量软删除文档记录
+        if (documents.isNotEmpty()) {
+            documentMapper.batchSoftDelete(documents.mapNotNull { it.id })
+        }
         
-        // 4. 删除当前分组本身
-        groupMapper.deleteById(groupId)
+        // 4. 软删除当前分组本身
+        groupMapper.softDelete(groupId)
     }
     
     /**

@@ -72,17 +72,19 @@ class DirectoryTreeService(
      * 从数据库构建目录树
      */
     private fun buildDirectoryTree(userId: Long): List<DirectoryTreeNode> {
-        // 1. 查询所有分组
+        // 1. 查询所有分组（手动过滤已删除的记录）
         val allGroups = groupMapper.selectList(
             QueryWrapper<Group>()
                 .eq("user_id", userId)
+                .eq("deleted", false)
                 .orderByAsc("sort_index")
         )
 
-        // 2. 查询所有文档
+        // 2. 查询所有文档（手动过滤已删除的记录）
         val allDocuments = documentMapper.selectList(
             QueryWrapper<Document>()
                 .eq("user_id", userId)
+                .eq("deleted", false)
                 .orderByAsc("sort_index")
                 .orderByDesc("created_at")
         )
