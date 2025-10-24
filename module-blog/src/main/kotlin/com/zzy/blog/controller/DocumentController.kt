@@ -1,6 +1,7 @@
 package com.zzy.blog.controller
 
 import com.zzy.blog.dto.*
+import com.zzy.blog.exception.ResourceNotFoundException
 import com.zzy.blog.service.BatchUploadService
 import com.zzy.blog.service.DocumentService
 import com.zzy.common.dto.ApiResponse
@@ -30,14 +31,12 @@ class DocumentController(
     @GetMapping
     fun getDocuments(
         @RequestParam(required = false) q: String?,
-        @RequestParam(required = false) status: String?,
         @RequestParam(required = false) groupId: Long?,
         @RequestParam(defaultValue = "1") page: Int,
         @RequestParam(defaultValue = "20") size: Int
     ): ApiResponse<DocumentListResponse> {
         val request = DocumentQueryRequest(
             q = q,
-            status = status,
             groupId = groupId,
             page = page,
             size = size
@@ -59,17 +58,27 @@ class DocumentController(
     /**
      * 创建文档
      */
-    @Operation(summary = "创建文档", description = "创建新的文档（Markdown或PDF）")
-    @PostMapping
-    fun createDocument(@RequestBody request: CreateDocumentRequest): ApiResponse<DocumentDetail> {
-        val document = documentService.createDocument(request)
+    @Operation(summary = "创建文档", description = "上传文件创建新的文档（支持md/pdf/txt）")
+    @PostMapping(consumes = ["multipart/form-data"])
+    fun createDocument(
+        @Parameter(description = "文档标题", required = true)
+        @RequestParam("title") title: String,
+        
+        @Parameter(description = "分组ID（可选）")
+        @RequestParam("groupId", required = false) groupId: Long?,
+        
+        @Parameter(description = "文档文件", required = true)
+        @RequestPart("file") file: MultipartFile
+    ): ApiResponse<DocumentDetail> {
+        val request = CreateDocumentRequest(title = title, groupId = groupId)
+        val document = documentService.createDocument(request, file)
         return ApiResponse.success(document, "创建成功")
     }
     
     /**
      * 更新文档
      */
-    @Operation(summary = "更新文档", description = "更新文档信息，包括内容、状态、分组等")
+    @Operation(summary = "更新文档", description = "更新文档信息，包括内容、分组等")
     @PatchMapping("/{id}")
     fun updateDocument(
         @PathVariable id: Long,
@@ -80,9 +89,45 @@ class DocumentController(
     }
     
     /**
+     * 更新文档文件
+     */
+    @Operation(summary = "更新文档文件", description = "替换文档的文件内容")
+    @PatchMapping("/{id}/file", consumes = ["multipart/form-data"])
+    fun updateDocumentFile(
+        @PathVariable id: Long,
+        @Parameter(description = "新的文档文件", required = true)
+        @RequestPart("file") file: MultipartFile
+    ): ApiResponse<DocumentDetail> {
+        val document = documentService.updateDocumentFile(id, file)
+        return ApiResponse.success(document, "文件更新成功")
+    }
+    
+    /**
+     * 下载文档文件
+     * 注意：建议前端直接使用 filePath 字段下载文件（更高效）
+     * 此接口作为备用方案，会增加下载统计
+     */
+    @Operation(summary = "下载文档文件", description = "下载文档的源文件（建议直接使用filePath下载）")
+    @GetMapping("/{id}/download")
+    fun downloadDocument(@PathVariable id: Long): ApiResponse<String> {
+        val document = documentService.getDocument(id)
+        
+        if (document.filePath == null) {
+            throw ResourceNotFoundException("文档没有关联文件")
+        }
+        
+        // 返回文件路径，前端通过路径直接下载
+        // 或者重定向到文件服务的下载接口
+        return ApiResponse.success(
+            data = document.filePath,
+            message = "请使用返回的路径下载文件"
+        )
+    }
+    
+    /**
      * 删除文档
      */
-    @Operation(summary = "删除文档", description = "删除文档（软删除）")
+    @Operation(summary = "删除文档", description = "删除文档（软删除，同时删除关联文件）")
     @DeleteMapping("/{id}")
     fun deleteDocument(@PathVariable id: Long): ApiResponse<Nothing> {
         documentService.deleteDocument(id)

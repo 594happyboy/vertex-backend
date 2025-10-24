@@ -34,37 +34,44 @@ class AuthInterceptor(
         // 从请求头获取令牌
         val token = extractToken(request)
         
-        if (token != null) {
-            // 验证令牌
-            if (!jwtUtil.validateToken(token)) {
-                throw UnauthorizedException("令牌无效或已过期")
-            }
-            
-            // 解析令牌
-            val role = jwtUtil.getRoleFromToken(token)
-            
-            if (role == "USER") {
-                val userId = jwtUtil.getUserIdFromToken(token)
-                if (userId != null) {
-                    AuthContextHolder.setAuthUser(
-                        AuthUser(
-                            userId = userId
-                        )
+        // 如果没有token，拒绝访问
+        if (token == null) {
+            logger.warn("请求被拒绝: 缺少认证令牌, path={}", request.requestURI)
+            throw UnauthorizedException("请先登录，访问该接口需要认证")
+        }
+        
+        // 验证令牌
+        if (!jwtUtil.validateToken(token)) {
+            logger.warn("请求被拒绝: 令牌无效或已过期, path={}", request.requestURI)
+            throw UnauthorizedException("令牌无效或已过期")
+        }
+        
+        // 解析令牌
+        val role = jwtUtil.getRoleFromToken(token)
+        
+        if (role == "USER") {
+            val userId = jwtUtil.getUserIdFromToken(token)
+            if (userId != null) {
+                AuthContextHolder.setAuthUser(
+                    AuthUser(
+                        userId = userId
                     )
-                    logger.debug("设置用户上下文: userId={}", userId)
-                }
+                )
+                logger.debug("设置用户上下文: userId={}", userId)
             } else {
-                throw UnauthorizedException("未知的角色类型")
+                throw UnauthorizedException("令牌中缺少用户信息")
             }
-            
-            // 检查是否需要刷新token
-            if (jwtUtil.shouldRefreshToken(token)) {
-                val newToken = jwtUtil.refreshToken(token)
-                if (newToken != null) {
-                    // 将新token放入响应头
-                    response.setHeader(NEW_TOKEN_HEADER, newToken)
-                    logger.debug("Token即将过期，已自动刷新并返回新token")
-                }
+        } else {
+            throw UnauthorizedException("未知的角色类型: $role")
+        }
+        
+        // 检查是否需要刷新token
+        if (jwtUtil.shouldRefreshToken(token)) {
+            val newToken = jwtUtil.refreshToken(token)
+            if (newToken != null) {
+                // 将新token放入响应头
+                response.setHeader(NEW_TOKEN_HEADER, newToken)
+                logger.debug("Token即将过期，已自动刷新并返回新token")
             }
         }
         

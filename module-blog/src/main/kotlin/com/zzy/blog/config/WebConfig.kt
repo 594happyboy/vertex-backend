@@ -19,10 +19,11 @@ class WebConfig(
         registry.addInterceptor(authInterceptor)
             .addPathPatterns("/api/**")
             .excludePathPatterns(
-                "/api/auth/login",      // 登录接口
-                "/doc.html",            // Swagger文档
-                "/swagger-ui/**",       // Swagger UI
-                "/v3/api-docs/**",      // OpenAPI文档
+                "/api/auth/login",          // 登录接口
+                "/api/files/*/download",    // 文件下载接口（公开访问）
+                "/doc.html",                // Swagger文档
+                "/swagger-ui/**",           // Swagger UI
+                "/v3/api-docs/**",          // OpenAPI文档
                 "/swagger-resources/**",
                 "/webjars/**"
             )

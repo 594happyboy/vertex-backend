@@ -6,7 +6,6 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import com.zzy.blog.context.AuthContextHolder
 import com.zzy.blog.dto.DirectoryTreeNode
 import com.zzy.blog.dto.DirectoryTreeResponse
-import com.zzy.blog.entity.DocStatus
 import com.zzy.blog.entity.Document
 import com.zzy.blog.entity.Group
 import com.zzy.blog.exception.ForbiddenException

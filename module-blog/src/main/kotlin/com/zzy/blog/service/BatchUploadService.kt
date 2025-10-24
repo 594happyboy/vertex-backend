@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
 import com.zzy.blog.context.AuthContextHolder
 import com.zzy.blog.dto.BatchUploadResponse
 import com.zzy.blog.dto.BatchUploadResultItem
-import com.zzy.blog.entity.DocStatus
 import com.zzy.blog.entity.Document
 import com.zzy.blog.entity.Group
 import com.zzy.blog.exception.ResourceNotFoundException
@@ -16,11 +15,9 @@ import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
 import java.io.ByteArrayInputStream
 import java.io.File
-import java.io.InputStreamReader
+import java.io.InputStream
 import java.nio.charset.Charset
 import java.nio.charset.CharacterCodingException
-import java.nio.charset.CodingErrorAction
-import java.nio.charset.MalformedInputException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.util.zip.ZipInputStream
@@ -35,7 +32,8 @@ import java.util.zip.ZipInputStream
 class BatchUploadService(
     private val groupMapper: GroupMapper,
     private val documentMapper: DocumentMapper,
-    private val directoryTreeService: DirectoryTreeService
+    private val directoryTreeService: DirectoryTreeService,
+    private val fileService: com.zzy.file.service.FileService
 ) {
     
     private val logger = LoggerFactory.getLogger(BatchUploadService::class.java)
@@ -43,7 +41,6 @@ class BatchUploadService(
     companion object {
         // 支持的文档文件类型
         private val SUPPORTED_DOC_TYPES = setOf("md", "txt", "pdf")
-        private val TEXT_DOC_TYPES = setOf("md", "txt")
         // 最大文件大小: 100MB
         private const val MAX_FILE_SIZE = 100 * 1024 * 1024L
     }
@@ -310,21 +307,22 @@ class BatchUploadService(
                 return false
             }
             
-            // 读取文件内容
-            val content = if (extension in TEXT_DOC_TYPES) {
-                readTextWithCharsetFallback(file)
-            } else {
-                null  // PDF等文件暂不读取内容
-            }
+            // 1. 上传文件到文件管理系统
+            val multipartFile = convertToMultipartFile(file)
+            val fileResponse = fileService.uploadFile(
+                userId = userId,
+                file = multipartFile,
+                request = com.zzy.file.dto.FileUploadRequest()
+            )
             
-            // 创建文档
+            // 2. 创建文档记录
             val document = Document(
                 userId = userId,
                 groupId = groupId,
                 title = fileName.substringBeforeLast("."),
-                type = if (extension == "pdf") "pdf" else "md",
-                status = DocStatus.DRAFT.value,
-                contentMd = content,
+                type = extension,
+                fileId = fileResponse.id,
+                filePath = fileResponse.downloadUrl,
                 sortIndex = 0
             )
             
@@ -358,51 +356,53 @@ class BatchUploadService(
             return false
         }
     }
-
+    
     /**
-     * 按照常见编码尝试读取文本文件，默认UTF-8，失败时尝试国标编码
+     * 将File转换为MultipartFile
+     * 使用流式读取，避免大文件内存压力
      */
-    private fun readTextWithCharsetFallback(file: File): String {
-        val charsets = listOf(
-            StandardCharsets.UTF_8,
-            Charset.forName("GB18030"),
-            Charset.forName("GBK"),
-            StandardCharsets.ISO_8859_1
-        )
-        var lastError: Exception? = null
-
-        for (charset in charsets) {
-            try {
-                file.inputStream().use { input ->
-                    val decoder = charset.newDecoder()
-                        .onMalformedInput(CodingErrorAction.REPORT)
-                        .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    InputStreamReader(input, decoder).use { reader ->
-                        return reader.readText()
-                    }
-                }
-            } catch (e: MalformedInputException) {
-                lastError = e
-            } catch (e: CharacterCodingException) {
-                lastError = e
-            } catch (e: Exception) {
-                lastError = e
-            }
-        }
-
-        // 最后尝试使用UTF-8替换模式，避免完全失败
-        file.inputStream().use { input ->
-            val decoder = StandardCharsets.UTF_8.newDecoder()
-                .onMalformedInput(CodingErrorAction.REPLACE)
-                .onUnmappableCharacter(CodingErrorAction.REPLACE)
-            InputStreamReader(input, decoder).use { reader ->
-                return reader.readText()
-            }
-        }
-
-        throw IllegalArgumentException("无法解析文件编码", lastError)
+    private fun convertToMultipartFile(file: File): MultipartFile {
+        return FileBackedMultipartFile(file)
     }
     
+    /**
+     * 基于文件的MultipartFile实现
+     * 支持流式读取，不会一次性加载整个文件到内存
+     */
+    private class FileBackedMultipartFile(private val file: File) : MultipartFile {
+        
+        override fun getName(): String = "file"
+        
+        override fun getOriginalFilename(): String = file.name
+        
+        override fun getContentType(): String? {
+            return Files.probeContentType(file.toPath()) ?: "application/octet-stream"
+        }
+        
+        override fun isEmpty(): Boolean = file.length() == 0L
+        
+        override fun getSize(): Long = file.length()
+        
+        override fun getBytes(): ByteArray {
+            // 仅在需要时才读取整个文件
+            return file.readBytes()
+        }
+        
+        override fun getInputStream(): InputStream {
+            // 每次调用都返回新地流，支持多次读取
+            return file.inputStream()
+        }
+        
+        override fun transferTo(dest: File) {
+            // 使用文件复制，而不是读取到内存
+            file.copyTo(dest, overwrite = true)
+        }
+        
+        override fun transferTo(dest: java.nio.file.Path) {
+            // 使用NIO的文件复制，高效且不占用内存
+            Files.copy(file.toPath(), dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
     /**
      * 创建或获取分组（同名分组会复用）
      * 在同一个父分组下，同名分组会被合并

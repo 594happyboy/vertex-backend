@@ -11,6 +11,7 @@ import org.springframework.boot.runApplication
         "com.zzy.blog"       // 博客模块
     ]
 )
+@org.springframework.scheduling.annotation.EnableScheduling  // 启用定时任务
 class VertexBackendApplication
 
 fun main(args: Array<String>) {

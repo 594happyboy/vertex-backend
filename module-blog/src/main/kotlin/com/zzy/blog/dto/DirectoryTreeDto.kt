@@ -33,7 +33,6 @@ data class DirectoryTreeNode(
     
     // 文档专属字段
     val type: String? = null,          // 文档类型: md/pdf
-    val status: String? = null,        // 文档状态: draft/published
     
     // 子节点（可以包含分组和文档）
     var children: MutableList<DirectoryTreeNode>? = null
@@ -67,8 +66,7 @@ data class DirectoryTreeNode(
                 sortIndex = document.sortIndex,
                 createdAt = document.createdAt,
                 updatedAt = document.updatedAt,
-                type = document.type,
-                status = document.status
+                type = document.type
             )
         }
     }

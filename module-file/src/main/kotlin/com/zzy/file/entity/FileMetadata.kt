@@ -1,19 +1,24 @@
 package com.zzy.file.entity
 
-import com.baomidou.mybatisplus.annotation.IdType
-import com.baomidou.mybatisplus.annotation.TableId
-import com.baomidou.mybatisplus.annotation.TableName
+import com.baomidou.mybatisplus.annotation.*
 import java.time.LocalDateTime
 
 /**
- * 文件元数据实体类
+ * 文件元数据实体类（重构版，支持文件夹）
  * @author ZZY
- * @date 2025-10-09
+ * @date 2025-10-23
  */
 @TableName("file_metadata")
 data class FileMetadata(
+    /** 文件ID */
     @TableId(type = IdType.AUTO)
     var id: Long? = null,
+    
+    /** 上传用户ID */
+    var userId: Long,
+    
+    /** 所属文件夹ID（NULL表示根目录） */
+    var folderId: Long? = null,
     
     /** 原始文件名 */
     var fileName: String? = null,
@@ -39,16 +44,22 @@ data class FileMetadata(
     /** 下载次数 */
     var downloadCount: Int = 0,
     
+    /** 文件标签（逗号分隔，如：工作,重要） */
+    var tags: String? = null,
+    
+    /** 文件描述 */
+    var description: String? = null,
+    
+    /** 是否删除（软删除） */
+    @TableLogic
+    var deleted: Boolean = false,
+    
+    /** 删除时间 */
+    var deletedAt: LocalDateTime? = null,
+    
     /** 上传时间 */
     var uploadTime: LocalDateTime? = null,
     
     /** 更新时间 */
-    var updateTime: LocalDateTime? = null,
-    
-    /** 状态(1:正常 0:已删除) */
-    var status: Int = 1,
-    
-    /** 上传用户ID(可选) */
-    var userId: Long? = null
+    var updateTime: LocalDateTime? = null
 )
-

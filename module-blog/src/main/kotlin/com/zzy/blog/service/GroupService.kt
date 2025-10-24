@@ -5,9 +5,11 @@ import com.zzy.blog.context.AuthContextHolder
 import com.zzy.blog.dto.CreateGroupRequest
 import com.zzy.blog.dto.GroupResponse
 import com.zzy.blog.dto.UpdateGroupRequest
+import com.zzy.blog.entity.Document
 import com.zzy.blog.entity.Group
 import com.zzy.blog.exception.ForbiddenException
 import com.zzy.blog.exception.ResourceNotFoundException
+import com.zzy.blog.mapper.DocumentMapper
 import com.zzy.blog.mapper.GroupMapper
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -20,8 +22,10 @@ import org.springframework.transaction.annotation.Transactional
  */
 @Service
 class GroupService(
+    private val documentMapper: DocumentMapper,
     private val groupMapper: GroupMapper,
-    private val directoryTreeService: DirectoryTreeService
+    private val directoryTreeService: DirectoryTreeService,
+    private val fileService: com.zzy.file.service.FileService  // 用于删除文件
 ) {
     
     private val logger = LoggerFactory.getLogger(GroupService::class.java)
@@ -101,7 +105,7 @@ class GroupService(
         // 更新字段
         request.name?.let { group.name = it }
         request.sortIndex?.let { group.sortIndex = it }
-        
+
         // 验证并更新父分组
         if (request.parentId != null) {
             // 不能将分组移动到自己或自己的子分组下
@@ -127,6 +131,7 @@ class GroupService(
     
     /**
      * 删除分组（软删除）
+     * 递归删除分组及其所有子分组和文档
      */
     @Transactional
     fun deleteGroup(id: Long) {
@@ -141,23 +146,60 @@ class GroupService(
             throw ForbiddenException("无权操作此分组")
         }
         
-        // 检查是否有子分组
-        val childCount = groupMapper.selectCount(
-            QueryWrapper<Group>()
-                .eq("parent_id", id)
-                .eq("user_id", userId)
-        )
-        
-        if (childCount > 0) {
-            throw IllegalArgumentException("该分组下还有子分组，请先删除子分组")
-        }
-        
-        // 软删除
-        groupMapper.deleteById(id)
-        logger.info("删除分组: id={}", id)
+        // 递归删除该分组及其所有子分组
+        deleteGroupRecursive(id, userId)
         
         // 清除缓存
         directoryTreeService.clearCache(userId)
+        
+        logger.info("删除分组: id={}, name={}", id, group.name)
+    }
+    
+    /**
+     * 递归删除分组及其子分组
+     */
+    private fun deleteGroupRecursive(groupId: Long, userId: Long) {
+        // 1. 查找所有直接子分组
+        val childGroups = groupMapper.selectList(
+            QueryWrapper<Group>()
+                .eq("parent_id", groupId)
+                .eq("user_id", userId)
+        )
+        
+        // 2. 递归删除所有子分组
+        childGroups.forEach { child ->
+            child.id?.let { deleteGroupRecursive(it, userId) }
+        }
+        
+        // 3. 查询并删除当前分组下的所有文档（包括关联文件）
+        val documents = documentMapper.selectList(
+            QueryWrapper<Document>()
+                .eq("group_id", groupId)
+                .eq("user_id", userId)
+        )
+        
+        documents.forEach { doc ->
+            // 删除每个文档的关联文件（软删除）
+            doc.fileId?.let { fileId ->
+                try {
+                    fileService.deleteFile(fileId, userId)
+                    logger.info("删除分组文档的关联文件: groupId={}, docId={}, fileId={}", 
+                        groupId, doc.id, fileId)
+                } catch (e: Exception) {
+                    logger.warn("删除文档文件失败: docId={}, fileId={}", doc.id, fileId, e)
+                }
+            }
+        }
+        
+        // 删除文档记录
+        documentMapper.delete(
+            QueryWrapper<Document>()
+                .eq("group_id", groupId)
+                .eq("user_id", userId)
+        )
+        
+        // 4. 删除当前分组本身
+        groupMapper.deleteById(groupId)
     }
     
     /**

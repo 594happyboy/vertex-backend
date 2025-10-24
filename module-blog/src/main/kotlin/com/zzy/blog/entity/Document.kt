@@ -23,14 +23,14 @@ data class Document(
     /** 标题 */
     var title: String,
     
-    /** 类型: md/pdf */
+    /** 类型: md/pdf/txt */
     var type: String,
     
-    /** 状态: draft/published */
-    var status: String = "draft",
+    /** 文件ID（关联file_metadata表） */
+    var fileId: Long? = null,
     
-    /** Markdown内容 */
-    var contentMd: String? = null,
+    /** 文件访问路径 */
+    var filePath: String? = null,
     
     /** 排序索引 */
     var sortIndex: Int = 0,
@@ -53,14 +53,7 @@ data class Document(
  */
 enum class DocType(val value: String) {
     MD("md"),
-    PDF("pdf")
-}
-
-/**
- * 文档状态枚举
- */
-enum class DocStatus(val value: String) {
-    DRAFT("draft"),
-    PUBLISHED("published")
+    PDF("pdf"),
+    TXT("txt")
 }
 

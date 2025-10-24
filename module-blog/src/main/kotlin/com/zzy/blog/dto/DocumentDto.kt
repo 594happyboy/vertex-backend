@@ -11,12 +11,13 @@ import java.time.LocalDateTime
 
 /**
  * 创建文档请求
+ * 注意：文件通过MultipartFile上传，不在此DTO中
  */
 data class CreateDocumentRequest(
     val title: String,
-    val groupId: Long? = null,
-    val type: String, // md or pdf
-    val contentMd: String? = null
+    val groupId: Long? = null
+    // type 将从上传的文件自动推断
+    // file 通过 @RequestParam("file") file: MultipartFile 传递
 )
 
 /**
@@ -25,9 +26,8 @@ data class CreateDocumentRequest(
 data class UpdateDocumentRequest(
     val title: String? = null,
     val groupId: Long? = null,
-    val contentMd: String? = null,
-    val status: String? = null,
     val sortIndex: Int? = null
+    // 文件更新通过单独的接口处理
 )
 
 /**
@@ -37,7 +37,6 @@ data class DocumentItem(
     val id: Long,
     val title: String,
     val type: String,
-    val status: String,
     val groupId: Long?,
     val sortIndex: Int,
     val createdAt: LocalDateTime?,
@@ -53,8 +52,8 @@ data class DocumentDetail(
     val groupId: Long?,
     val title: String,
     val type: String,
-    val status: String,
-    val contentMd: String?,
+    val fileId: Long?,
+    val filePath: String?,
     val sortIndex: Int,
     val createdAt: LocalDateTime?,
     val updatedAt: LocalDateTime?
@@ -67,8 +66,8 @@ data class DocumentDetail(
                 groupId = document.groupId,
                 title = document.title,
                 type = document.type,
-                status = document.status,
-                contentMd = document.contentMd,
+                fileId = document.fileId,
+                filePath = document.filePath,
                 sortIndex = document.sortIndex,
                 createdAt = document.createdAt,
                 updatedAt = document.updatedAt
@@ -82,7 +81,6 @@ data class DocumentDetail(
  */
 data class DocumentQueryRequest(
     val q: String? = null,      // 搜索关键词
-    val status: String? = null,  // 状态过滤
     val groupId: Long? = null,   // 分组过滤
     val page: Int = 1,           // 页码
     val size: Int = 20           // 每页大小
