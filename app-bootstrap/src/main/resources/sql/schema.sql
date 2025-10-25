@@ -52,7 +52,6 @@ CREATE TABLE IF NOT EXISTS file_metadata (
     file_path VARCHAR(500) COMMENT '文件存储路径',
     file_md5 VARCHAR(64) COMMENT '文件MD5值(用于秒传)',
     download_count INT DEFAULT 0 COMMENT '下载次数',
-    tags VARCHAR(500) NULL COMMENT '文件标签（逗号分隔）',
     description TEXT NULL COMMENT '文件描述',
     deleted BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否删除（软删除）',
     deleted_at DATETIME NULL COMMENT '删除时间',

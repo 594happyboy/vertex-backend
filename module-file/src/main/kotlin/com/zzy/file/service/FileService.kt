@@ -98,7 +98,6 @@ class FileService(
                 fileExtension = existingFile.fileExtension,
                 filePath = existingFile.filePath,
                 fileMd5 = md5,
-                tags = request.tags,
                 description = request.description,
                 uploadTime = LocalDateTime.now(),
                 updateTime = LocalDateTime.now()
@@ -132,7 +131,6 @@ class FileService(
             fileExtension = fileExtension,
             filePath = storedName,
             fileMd5 = md5,
-            tags = request.tags,
             description = request.description,
             uploadTime = LocalDateTime.now(),
             updateTime = LocalDateTime.now()
@@ -198,7 +196,6 @@ class FileService(
                 if (!keyword.isNullOrBlank()) {
                     and { qw ->
                         qw.like("file_name", keyword)
-                            .or().like("tags", keyword)
                             .or().like("description", keyword)
                     }
                 }
@@ -312,11 +309,6 @@ class FileService(
         }
         
         // 更新其他字段
-        if (request.tags != null && request.tags != file.tags) {
-            file.tags = request.tags
-            updated = true
-        }
-        
         if (request.description != null && request.description != file.description) {
             file.description = request.description
             updated = true

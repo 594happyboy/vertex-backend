@@ -40,9 +40,6 @@ class FileController(
         @Parameter(description = "所属文件夹ID（null表示根目录）")
         @RequestParam(required = false) folderId: Long?,
         
-        @Parameter(description = "文件标签（逗号分隔）")
-        @RequestParam(required = false) tags: String?,
-        
         @Parameter(description = "文件描述")
         @RequestParam(required = false) description: String?
     ): ApiResponse<FileResponse> {
@@ -51,7 +48,6 @@ class FileController(
         
         val request = FileUploadRequest(
             folderId = folderId,
-            tags = tags,
             description = description
         )
         
@@ -75,7 +71,7 @@ class FileController(
         @Parameter(description = "每页数量") 
         @RequestParam(defaultValue = "20") size: Int,
         
-        @Parameter(description = "搜索关键词（文件名、标签、描述）") 
+        @Parameter(description = "搜索关键词（文件名、描述）") 
         @RequestParam(required = false) keyword: String?,
         
         @Parameter(description = "排序字段") 
@@ -105,7 +101,7 @@ class FileController(
         return ApiResponse.success(fileInfo, "查询成功")
     }
     
-    @Operation(summary = "更新文件信息", description = "更新文件名称、标签、描述等")
+    @Operation(summary = "更新文件信息", description = "更新文件名称、描述等")
     @PutMapping("/{id}")
     fun updateFile(
         @Parameter(description = "文件ID", required = true) @PathVariable id: Long,

@@ -19,7 +19,6 @@ data class FileResponse(
     val fileExtension: String,
     val folderId: Long?,
     val folderName: String? = null,
-    val tags: List<String>,
     val description: String?,
     val uploadTime: String,
     val updateTime: String,
@@ -43,9 +42,6 @@ data class FileResponse(
                 if (remaining > 0) remaining else 0
             }
             
-            // 解析标签
-            val tagList = entity.tags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
-            
             return FileResponse(
                 id = entity.id ?: 0,
                 fileName = entity.fileName ?: "",
@@ -54,7 +50,6 @@ data class FileResponse(
                 fileType = entity.fileType ?: "unknown",
                 fileExtension = entity.fileExtension ?: "",
                 folderId = entity.folderId,
-                tags = tagList,
                 description = entity.description,
                 uploadTime = entity.uploadTime?.format(DATE_FORMATTER) ?: "",
                 updateTime = entity.updateTime?.format(DATE_FORMATTER) ?: "",
@@ -106,7 +101,6 @@ data class FolderBreadcrumb(
 /** 文件上传请求DTO */
 data class FileUploadRequest(
     val folderId: Long? = null,
-    val tags: String? = null,
     val description: String? = null
 )
 
@@ -114,7 +108,6 @@ data class FileUploadRequest(
 data class UpdateFileRequest(
     val fileName: String? = null,
     val folderId: Long? = null,
-    val tags: String? = null,
     val description: String? = null
 )
 
@@ -139,7 +132,6 @@ data class FileSearchRequest(
     val keyword: String? = null,
     val folderId: Long? = null,
     val fileTypes: List<String>? = null,  // 如：["pdf", "jpg"]
-    val tags: List<String>? = null,
     val startDate: String? = null,
     val endDate: String? = null,
     val minSize: Long? = null,

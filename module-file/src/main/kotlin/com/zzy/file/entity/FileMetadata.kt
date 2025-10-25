@@ -44,9 +44,6 @@ data class FileMetadata(
     /** 下载次数 */
     var downloadCount: Int = 0,
     
-    /** 文件标签（逗号分隔，如：工作,重要） */
-    var tags: String? = null,
-    
     /** 文件描述 */
     var description: String? = null,
     
