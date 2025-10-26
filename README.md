@@ -43,10 +43,10 @@ docker-compose ps
 2. **初始化数据库**
 ```bash
 # Windows (PowerShell)
-Get-Content app-bootstrap\src\main\resources\sql\schema.sql | docker exec -i vertex-mysql mysql -uroot -proot123 vertex_backend
+Get-Content schema.sql | docker exec -i vertex-mysql mysql -uroot -proot123 vertex_backend
 
 # Linux/Mac
-mysql -h localhost -u root -proot123 vertex_backend < app-bootstrap/src/main/resources/sql/schema.sql
+mysql -h localhost -u root -proot123 vertex_backend < schema.sql
 ```
 
 3. **启动应用**
@@ -121,10 +121,10 @@ mvn spring-boot:run
 
 ```
 vertex-backend/
+├── schema.sql               # 数据库初始化脚本（部署配置）
 ├── app-bootstrap/           # 应用启动模块
 │   ├── src/main/resources/
-│   │   ├── application.properties  # 应用配置
-│   │   └── sql/schema.sql          # 数据库初始化脚本
+│   │   └── application.properties  # 应用配置
 │   └── VertexBackendApplication.kt # 启动类
 │
 ├── common/                  # 公共模块

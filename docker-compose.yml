@@ -10,7 +10,7 @@ services:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./app-bootstrap/src/main/resources/sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
     command: --default-authentication-plugin=mysql_native_password
     networks:
       - vertex-network
@@ -40,6 +40,35 @@ services:
       - minio-data:/data
     networks:
       - vertex-network
+
+  vertex-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vertex-backend
+    environment:
+      # 数据库配置
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/vertex_backend?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root123
+      # Redis 配置
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      # MinIO 配置
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESSKEY: admin
+      MINIO_SECRETKEY: admin123
+      # 时区配置
+      TZ: Asia/Shanghai
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql
+      - redis
+      - minio
+    networks:
+      - vertex-network
+    restart: unless-stopped
 
 volumes:
   mysql-data:
