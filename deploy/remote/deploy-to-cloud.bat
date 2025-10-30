@@ -37,7 +37,7 @@ if not exist "app-bootstrap\build\libs\vertex-backend.jar" (
 echo [2/5] 检查文件是否存在...
 echo ----------------------------------------
 set "FILES_OK=1"
-if not exist "schema.sql" (
+if not exist "..\schema.sql" (
     echo ❌ 找不到 schema.sql
     set "FILES_OK=0"
 )
@@ -67,7 +67,7 @@ set TEMP_ARCHIVE=deploy_%RANDOM%.tar
 echo 创建临时目录...
 mkdir %TEMP_DIR% 2>nul
 copy /Y app-bootstrap\build\libs\vertex-backend.jar %TEMP_DIR%\ >nul
-copy /Y schema.sql %TEMP_DIR%\ >nul
+copy /Y ..\schema.sql %TEMP_DIR%\ >nul
 copy /Y docker-compose.yml %TEMP_DIR%\ >nul
 copy /Y Dockerfile %TEMP_DIR%\ >nul
 

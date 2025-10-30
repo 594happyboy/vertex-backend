@@ -15,10 +15,11 @@ data class LoginRequest(
 )
 
 /**
- * 登录响应
+ * 登录响应（双Token模式）
  */
 data class LoginResponse(
-    val accessToken: String,
+    val accessToken: String,      // 短期访问令牌（30分钟）
+    val refreshToken: String,      // 长期刷新令牌（7天），存储在HttpOnly Cookie
     val user: UserInfo
 )
 
@@ -29,19 +30,5 @@ data class UserInfo(
     val id: Long,
     val username: String,
     val nickname: String?
-)
-
-/**
- * 刷新令牌请求（可选）
- */
-data class RefreshTokenRequest(
-    val refreshToken: String
-)
-
-/**
- * 刷新令牌响应（可选）
- */
-data class RefreshTokenResponse(
-    val accessToken: String
 )
 

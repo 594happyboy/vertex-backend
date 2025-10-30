@@ -10,9 +10,16 @@ import java.nio.charset.StandardCharsets
 import java.util.*
 
 /**
- * JWT 工具类
+ * JWT 工具类（方案4：分布式锁）
+ * 
+ * ## 核心功能
+ * - 生成 AccessToken
+ * - 解析 Token
+ * - 验证 Token
+ * - 获取 Token 信息
+ * 
  * @author ZZY
- * @date 2025-10-18
+ * @date 2025-10-30
  */
 @Component
 class JwtUtil {
@@ -20,21 +27,18 @@ class JwtUtil {
     @Value("\${jwt.secret:your-256-bit-secret-key-change-in-production-environment}")
     private lateinit var secret: String
     
-    @Value("\${jwt.expiration:7200000}") // 默认2小时
-    private var expiration: Long = 7200000
-    
-    @Value("\${jwt.refresh-threshold:1800000}") // 默认30分钟，当剩余时间少于此值时自动刷新
-    private var refreshThreshold: Long = 1800000
+    @Value("\${jwt.access-token-expiration:1800000}") // AccessToken默认30分钟
+    private var accessTokenExpiration: Long = 1800000
     
     @Value("\${jwt.issuer:vertex-backend}")
     private lateinit var issuer: String
     
     /**
-     * 生成用户令牌
+     * 生成用户 AccessToken（短期，30分钟）
      */
-    fun generateUserToken(userId: Long, username: String): String {
+    fun generateAccessToken(userId: Long, username: String): String {
         val now = Date()
-        val expiryDate = Date(now.time + expiration)
+        val expiryDate = Date(now.time + accessTokenExpiration)
         
         val key = Keys.hmacShaKeyFor(secret.toByteArray(StandardCharsets.UTF_8))
         
@@ -66,7 +70,7 @@ class JwtUtil {
     }
     
     /**
-     * 验证令牌
+     * 验证令牌是否有效（未过期且签名正确）
      */
     fun validateToken(token: String): Boolean {
         return try {
@@ -102,46 +106,14 @@ class JwtUtil {
     }
     
     /**
-     * 检查令牌是否需要刷新
-     * @return true 如果令牌还有效但即将过期（剩余时间 < refreshThreshold）
+     * 从令牌获取用户名
      */
-    fun shouldRefreshToken(token: String): Boolean {
+    fun getUsernameFromToken(token: String): String? {
         return try {
-            val claims = parseToken(token) ?: return false
-            val expiration = claims.expiration
-            val now = Date()
-            
-            // 如果已过期，返回false
-            if (expiration.before(now)) {
-                return false
-            }
-            
-            // 如果剩余时间少于阈值，需要刷新
-            val remainingTime = expiration.time - now.time
-            remainingTime < refreshThreshold
-        } catch (e: Exception) {
-            false
-        }
-    }
-    
-    /**
-     * 刷新令牌（基于旧令牌生成新令牌）
-     */
-    fun refreshToken(oldToken: String): String? {
-        return try {
-            val claims = parseToken(oldToken) ?: return null
-            val role = claims.get("role", String::class.java)
-            
-            if (role == "USER") {
-                val userId = getUserIdFromToken(oldToken) ?: return null
-                val username = claims.get("username", String::class.java) ?: return null
-                generateUserToken(userId, username)
-            } else {
-                null
-            }
+            val claims = parseToken(token)
+            claims?.get("username", String::class.java)
         } catch (e: Exception) {
             null
         }
     }
 }
-
