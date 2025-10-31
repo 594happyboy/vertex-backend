@@ -1,206 +1,504 @@
 @echo off
-chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 REM ============================================
-REM Vertex Backend - 一键部署到云服务器脚本
+REM Vertex Backend - Deploy Script
 REM ============================================
 
-echo ========================================
-echo   Vertex Backend 云服务器部署脚本
-echo ========================================
-echo.
+cd /d "%~dp0\..\..\"
 
-REM 云服务器配置
 set SERVER_IP=47.109.191.242
 set SERVER_USER=root
 set SERVER_PATH=/opt/vertex-backend
 
-echo [1/5] 开始构建 JAR 文件...
+goto main_menu
+
+:build_and_upload
+echo.
+echo ========================================
+echo Build and Upload
+echo ========================================
+echo.
+echo Current directory: %CD%
+echo.
+
+echo [1/4] Building JAR file...
 echo ----------------------------------------
 call gradlew.bat :app-bootstrap:bootJar --no-daemon
 if errorlevel 1 (
-    echo ❌ 构建失败！
+    echo [ERROR] Build failed
+    echo.
     pause
-    exit /b 1
+    goto main_menu
 )
-echo ✅ 构建成功！
+echo [DONE] Build success
 echo.
 
-REM 检查 JAR 文件是否存在
 if not exist "app-bootstrap\build\libs\vertex-backend.jar" (
-    echo ❌ 找不到 JAR 文件！
+    echo [ERROR] JAR file not found
+    echo.
     pause
-    exit /b 1
+    goto main_menu
 )
 
-echo [2/5] 检查文件是否存在...
+echo [2/4] Checking files...
 echo ----------------------------------------
 set "FILES_OK=1"
-if not exist "..\schema.sql" (
-    echo ❌ 找不到 schema.sql
+if not exist "deploy\schema.sql" (
+    echo [ERROR] schema.sql not found
     set "FILES_OK=0"
 )
-if not exist "docker-compose.yml" (
-    echo ❌ 找不到 docker-compose.yml
+if not exist "deploy\remote\docker-compose.yml" (
+    echo [ERROR] docker-compose.yml not found
     set "FILES_OK=0"
 )
-if not exist "Dockerfile" (
-    echo ❌ 找不到 Dockerfile
+if not exist "deploy\remote\Dockerfile" (
+    echo [ERROR] Dockerfile not found
     set "FILES_OK=0"
 )
 
 if "!FILES_OK!"=="0" (
     echo.
-    echo ❌ 缺少必要文件！
+    echo [ERROR] Missing required files
+    echo.
     pause
-    exit /b 1
+    goto main_menu
 )
-echo ✅ 所有文件检查通过！
+echo [DONE] All files checked
 echo.
 
-echo [3/5] 打包部署文件...
+echo [3/4] Packing files...
 echo ----------------------------------------
 set TEMP_DIR=temp_deploy_%RANDOM%
-set TEMP_ARCHIVE=deploy_%RANDOM%.tar
+set TEMP_ARCHIVE=deploy_%RANDOM%.tar.gz
 
-echo 创建临时目录...
-mkdir %TEMP_DIR% 2>nul
-copy /Y app-bootstrap\build\libs\vertex-backend.jar %TEMP_DIR%\ >nul
-copy /Y ..\schema.sql %TEMP_DIR%\ >nul
-copy /Y docker-compose.yml %TEMP_DIR%\ >nul
-copy /Y Dockerfile %TEMP_DIR%\ >nul
+echo Creating temp directory...
+mkdir "%TEMP_DIR%" 2>nul
+if not exist "%TEMP_DIR%" (
+    echo [ERROR] Failed to create temp directory
+    echo.
+    pause
+    goto main_menu
+)
 
-echo 检查 tar 命令是否可用...
+echo Copying files to temp directory...
+copy /Y "app-bootstrap\build\libs\vertex-backend.jar" "%TEMP_DIR%\" >nul
+if errorlevel 1 goto copy_error
+
+copy /Y "deploy\schema.sql" "%TEMP_DIR%\" >nul
+if errorlevel 1 goto copy_error
+
+copy /Y "deploy\remote\docker-compose.yml" "%TEMP_DIR%\" >nul
+if errorlevel 1 goto copy_error
+
+copy /Y "deploy\remote\Dockerfile" "%TEMP_DIR%\" >nul
+if errorlevel 1 goto copy_error
+
+echo [DONE] Files copied
+echo.
+
+echo Checking tar command...
 where tar >nul 2>&1
 if errorlevel 1 (
-    echo ⚠️  未找到 tar 命令，将使用传统方式上传（需要多次输入密码）
+    echo [WARNING] tar not found, using traditional upload
     goto traditional_upload
 )
 
-echo 打包文件...
-tar -czf %TEMP_ARCHIVE% -C %TEMP_DIR% .
+echo Packing files...
+tar -czf "%TEMP_ARCHIVE%" -C "%TEMP_DIR%" .
 if errorlevel 1 (
-    echo ⚠️  打包失败，将使用传统方式上传
+    echo [WARNING] Pack failed, using traditional upload
+    del "%TEMP_ARCHIVE%" 2>nul
     goto traditional_upload
 )
-echo ✅ 打包完成！
+echo [DONE] Pack complete
 echo.
 
-echo [4/5] 上传并部署到云服务器...
+echo [4/4] Uploading to server...
 echo ----------------------------------------
-echo 🔑 只需输入一次密码即可完成所有操作...
+echo NOTE: Enter password once to complete all operations
 echo.
 
-echo 正在上传打包文件...
-scp -o StrictHostKeyChecking=no %TEMP_ARCHIVE% %SERVER_USER%@%SERVER_IP%:/tmp/
+echo Uploading archive...
+scp -o StrictHostKeyChecking=no "%TEMP_ARCHIVE%" %SERVER_USER%@%SERVER_IP%:/tmp/
 if errorlevel 1 (
-    echo ❌ 上传失败！
-    del %TEMP_ARCHIVE% 2>nul
-    rd /s /q %TEMP_DIR% 2>nul
+    echo [ERROR] Upload failed
+    del "%TEMP_ARCHIVE%" 2>nul
+    rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
-echo 正在服务器上解压并部署...
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "mkdir -p %SERVER_PATH% && cd %SERVER_PATH% && tar -xzf /tmp/%TEMP_ARCHIVE% && rm -f /tmp/%TEMP_ARCHIVE% && echo '✅ 压缩包已解压到: %SERVER_PATH%' && echo '' && echo '📁 部署文件列表：' && ls -lh vertex-backend.jar schema.sql docker-compose.yml Dockerfile 2>/dev/null | awk '{if(NR>1) print \"   \" $9 \" (\" $5 \")\"}'"
+echo Extracting on server...
+ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "mkdir -p %SERVER_PATH% && cd %SERVER_PATH% && tar -xzf /tmp/%TEMP_ARCHIVE% && rm -f /tmp/%TEMP_ARCHIVE%"
 if errorlevel 1 (
-    echo ❌ 解压失败！
-    del %TEMP_ARCHIVE% 2>nul
-    rd /s /q %TEMP_DIR% 2>nul
+    echo [ERROR] Extract failed
+    del "%TEMP_ARCHIVE%" 2>nul
+    rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
 echo.
-echo 清理本地临时文件...
-del %TEMP_ARCHIVE% 2>nul
-rd /s /q %TEMP_DIR% 2>nul
-
-echo ✅ 所有文件已成功部署到服务器！
-echo.
-goto deploy_finish
+echo Cleaning temp files...
+del "%TEMP_ARCHIVE%" 2>nul
+rd /s /q "%TEMP_DIR%" 2>nul
+goto upload_success
 
 :traditional_upload
 echo.
-echo 使用传统方式上传文件（需要多次输入密码）...
+echo Using traditional upload (multiple password prompts)
 echo.
 
-echo 创建服务器目录...
+echo Creating server directory...
 ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "mkdir -p %SERVER_PATH%"
 if errorlevel 1 (
-    rd /s /q %TEMP_DIR% 2>nul
+    rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
-echo 上传 vertex-backend.jar...
-scp -o StrictHostKeyChecking=no %TEMP_DIR%\vertex-backend.jar %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
+echo Uploading vertex-backend.jar...
+scp -o StrictHostKeyChecking=no "%TEMP_DIR%\vertex-backend.jar" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
 if errorlevel 1 (
-    rd /s /q %TEMP_DIR% 2>nul
+    rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
-echo 上传 schema.sql...
-scp -o StrictHostKeyChecking=no %TEMP_DIR%\schema.sql %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
+echo Uploading schema.sql...
+scp -o StrictHostKeyChecking=no "%TEMP_DIR%\schema.sql" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
 if errorlevel 1 (
-    rd /s /q %TEMP_DIR% 2>nul
+    rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
-echo 上传 docker-compose.yml...
-scp -o StrictHostKeyChecking=no %TEMP_DIR%\docker-compose.yml %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
+echo Uploading docker-compose.yml...
+scp -o StrictHostKeyChecking=no "%TEMP_DIR%\docker-compose.yml" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
 if errorlevel 1 (
-    rd /s /q %TEMP_DIR% 2>nul
+    rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
-echo 上传 Dockerfile...
-scp -o StrictHostKeyChecking=no %TEMP_DIR%\Dockerfile %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
+echo Uploading Dockerfile...
+scp -o StrictHostKeyChecking=no "%TEMP_DIR%\Dockerfile" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
 if errorlevel 1 (
-    rd /s /q %TEMP_DIR% 2>nul
+    rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
-rd /s /q %TEMP_DIR% 2>nul
-echo ✅ 所有文件上传成功！
-echo.
+rd /s /q "%TEMP_DIR%" 2>nul
+goto upload_success
 
-:deploy_finish
-
-echo [5/5] 显示部署后续步骤...
-echo ----------------------------------------
-echo.
-echo 📋 文件已上传到云服务器，接下来需要手动执行以下命令：
-echo.
-echo 1. 连接到云服务器：
-echo    ssh root@%SERVER_IP%
-echo.
-echo 2. 进入部署目录：
-echo    cd %SERVER_PATH%
-echo.
-echo 3. 启动服务（首次部署）：
-echo    docker-compose up -d
-echo.
-echo 4. 查看日志：
-echo    docker-compose logs -f vertex-backend
+:upload_success
 echo.
 echo ========================================
-echo   部署完成！✅
+echo [DONE] All files uploaded successfully
+echo ========================================
+echo.
+pause
+goto main_menu
+
+:main_menu
+cls
+echo.
+echo ========================================
+echo Vertex Backend Server Management
+echo ========================================
+echo.
+echo Server: %SERVER_USER%@%SERVER_IP%
+echo Deploy path: %SERVER_PATH%
+echo.
+echo [Deployment and Update]
+echo 1. Build and Upload JAR       - Build locally and upload to server
+echo 2. Update Backend Only        - Rebuild backend and start [MOST USED]
+echo 3. Rebuild All Services       - Rebuild all and start (MySQL/Redis/MinIO/Backend)
+echo.
+echo [Monitoring]
+echo 4. View Logs                  - View real-time application logs
+echo 5. Check Status               - Check service status and resources
+echo.
+echo [Control]
+echo 6. Restart Backend Only       - Quick restart backend (no rebuild, for stuck app)
+echo 7. Restart All Services       - Restart all services (no rebuild)
+echo 8. Stop All Services          - Stop all running services
+echo 9. Manual Guide               - Show manual commands
+echo 0. Exit
+echo.
+set /p CHOICE="Enter option (0-9): "
+
+if "%CHOICE%"=="" goto main_menu
+if "%CHOICE%"=="1" goto build_and_upload
+if "%CHOICE%"=="2" goto option_update_backend
+if "%CHOICE%"=="3" goto option_rebuild_all
+if "%CHOICE%"=="4" goto option_logs
+if "%CHOICE%"=="5" goto option_status
+if "%CHOICE%"=="6" goto option_restart_backend
+if "%CHOICE%"=="7" goto option_restart_all
+if "%CHOICE%"=="8" goto option_stop
+if "%CHOICE%"=="9" goto option_manual
+if "%CHOICE%"=="0" goto end_script
+
+cls
+echo.
+echo [ERROR] Invalid option
+echo.
+timeout /t 2 >nul
+goto main_menu
+
+:option_update_backend
+cls
+echo.
+echo ========================================
+echo Update Backend Only
+echo ========================================
+echo.
+echo [SCOPE] Backend service ONLY
+echo [INFO] This will rebuild backend image using new JAR file
+echo [INFO] This will apply backend environment variable changes
+echo [INFO] Will automatically START backend after rebuild
+echo [NOTE] MySQL, Redis, MinIO will NOT be affected
+echo [USE CASE] Use after uploading new JAR (Option 1) or config changes
+echo.
+echo NOTE: Enter password ONCE for all operations
+echo.
+echo Updating vertex-backend container...
+echo.
+ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose up -d --build --force-recreate --no-deps vertex-backend && echo && docker compose ps"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Failed to rebuild and start container
+    echo.
+    echo Troubleshooting:
+    echo 1. Check if JAR file exists on server
+    echo 2. Check if Dockerfile is valid
+    echo 3. Check Docker service is running
+)
+goto after_operation
+
+:option_rebuild_all
+cls
+echo.
+echo ========================================
+echo Rebuild All Services
+echo ========================================
+echo.
+echo [SCOPE] ALL services (MySQL + Redis + MinIO + Backend)
+echo [WARNING] This will rebuild and restart ALL services
+echo [INFO] Will automatically START all services after rebuild
+echo [IMPACT] Database connections will be interrupted briefly
+echo [IMPACT] Redis cache will be reset
+echo [IMPACT] MinIO file service will restart
+echo [USE CASE] Use when docker-compose.yml is modified or dependencies need reset
+echo.
+set /p CONFIRM="Confirm rebuild ALL services? (y/n): "
+if /i not "%CONFIRM%"=="y" (
+    echo.
+    echo Operation cancelled
+    goto after_operation
+)
+echo.
+echo NOTE: Enter password ONCE for all operations
+echo.
+echo Rebuilding all services...
+echo.
+ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker stop vertex-backend vertex-mysql vertex-redis vertex-minio 2>/dev/null || true && docker rm -f vertex-backend vertex-mysql vertex-redis vertex-minio 2>/dev/null || true && docker compose down 2>/dev/null || true && docker compose up -d --build --force-recreate && echo && docker compose ps"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Failed to rebuild and start services
+    echo.
+    echo Troubleshooting:
+    echo 1. Check if all required files exist on server
+    echo 2. Check if docker-compose.yml is valid
+    echo 3. Check Docker service is running
+    echo 4. Try manual rebuild: ssh to server and run:
+    echo    cd %SERVER_PATH% ^&^& docker compose down ^&^& docker compose up -d --build
+)
+goto after_operation
+
+:option_restart_backend
+cls
+echo.
+echo ========================================
+echo Restart Backend Only
+echo ========================================
+echo.
+echo [SCOPE] Backend service ONLY
+echo [INFO] This will restart the backend container
+echo [NOTE] Will NOT rebuild image or use new JAR
+echo [NOTE] Will NOT apply environment variable changes
+echo [NOTE] MySQL, Redis, MinIO will NOT be affected
+echo [USE CASE] Use this only if backend is stuck or frozen
+echo.
+echo Restarting backend...
+echo.
+ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose restart vertex-backend && echo && docker compose ps vertex-backend"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Failed to restart container
+    echo Check if the container exists and the service is accessible
+)
+goto after_operation
+
+:option_restart_all
+cls
+echo.
+echo ========================================
+echo Restart All Services
+echo ========================================
+echo.
+echo [SCOPE] ALL services (MySQL + Redis + MinIO + Backend)
+echo [INFO] This will restart all running services
+echo [NOTE] Will NOT rebuild images or use new JAR
+echo [NOTE] Will NOT apply configuration changes
+echo [IMPACT] Brief interruption to all services
+echo [USE CASE] Use when all services are stuck or need quick restart
+echo.
+set /p CONFIRM="Confirm restart ALL services? (y/n): "
+if /i not "%CONFIRM%"=="y" (
+    echo.
+    echo Operation cancelled
+    goto after_operation
+)
+echo.
+echo Restarting all services...
+echo.
+ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose restart && echo && docker compose ps"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Failed to restart services
+    echo Check the error messages above
+)
+goto after_operation
+
+:option_logs
+cls
+echo.
+echo ========================================
+echo View Logs
+echo ========================================
+echo.
+echo [INFO] Showing real-time application logs
+echo [INFO] Press Ctrl+C to exit
+echo.
+ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose logs -f vertex-backend"
+goto after_operation
+
+:option_status
+cls
+echo.
+echo ========================================
+echo Check Status
+echo ========================================
+echo.
+echo [INFO] Checking service status and resource usage
+echo.
+ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose ps && echo && echo 'Resource usage:' && docker stats --no-stream vertex-backend 2>/dev/null || echo '  Container not running'"
+goto after_operation
+
+:option_stop
+cls
+echo.
+echo ========================================
+echo Stop All Services
+echo ========================================
+echo.
+echo [WARNING] This will stop all services (Backend, MySQL, Redis, MinIO)
+echo [NOTE] Data volumes will be preserved
+echo.
+set /p CONFIRM="Confirm stop? (y/n): "
+if /i not "%CONFIRM%"=="y" (
+    echo.
+    echo Operation cancelled
+    goto after_operation
+)
+echo.
+echo Stopping all services...
+ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose down"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Failed to stop services
+    echo Check the error messages above
+)
+goto after_operation
+
+:option_manual
+cls
+echo.
+echo ========================================
+echo Manual Guide
+echo ========================================
+echo.
+echo Connect to server:
+echo   ssh %SERVER_USER%@%SERVER_IP%
+echo.
+echo Go to deploy directory:
+echo   cd %SERVER_PATH%
+echo.
+echo Common commands:
+echo   Update backend only:     docker compose up -d --build --force-recreate --no-deps vertex-backend
+echo   Rebuild all services:    docker compose down ^&^& docker compose up -d --build --force-recreate
+echo   Restart backend only:    docker compose restart vertex-backend
+echo   Restart all services:    docker compose restart
+echo   View logs:               docker compose logs -f vertex-backend
+echo   Check status:            docker compose ps
+echo   Stop all services:       docker compose down
+echo.
+echo Common workflow:
+echo   1. Upload new JAR:       Use Option 1 in this script
+echo   2. Update backend:       Use Option 2 in this script
+echo   3. View logs:            Use Option 4 in this script
+echo.
+echo Rebuild all workflow:
+echo   1. Upload new JAR:       Use Option 1 in this script
+echo   2. Rebuild all:          Use Option 3 in this script (includes dependencies)
+echo   3. Check status:         Use Option 5 in this script
+echo.
+echo Troubleshooting:
+echo   Backend stuck:           Use Option 6 (restart backend only)
+echo   All services stuck:      Use Option 7 (restart all)
+echo   Config changes:          Use Option 2 (backend) or Option 3 (all)
+echo.
+goto after_operation
+
+:after_operation
+echo.
+echo ----------------------------------------
+set /p CONTINUE="Continue other operations? (y/n): "
+if /i "%CONTINUE%"=="y" (
+    goto main_menu
+)
+goto end_script
+
+:end_script
+cls
+echo.
+echo ========================================
+echo Thank you for using!
 echo ========================================
 echo.
 pause
 exit /b 0
 
-:upload_error
-echo.
-echo ❌ 文件上传失败！
-echo.
-echo 💡 故障排查：
-echo 1. 检查网络连接是否正常
-echo 2. 确认服务器 IP 地址正确：%SERVER_IP%
-echo 3. 确认密码输入正确
-echo 4. 检查是否安装了 OpenSSH 客户端
-echo    - Windows 10+ 自带，在 "设置 → 应用 → 可选功能" 中启用
-echo    - 或者安装 Git for Windows
+:copy_error
+echo [ERROR] Failed to copy files
+rd /s /q "%TEMP_DIR%" 2>nul
 echo.
 pause
-exit /b 1
+goto main_menu
+
+:upload_error
+cls
+echo.
+echo ========================================
+echo [ERROR] Upload failed
+echo ========================================
+echo.
+echo Troubleshooting:
+echo 1. Check network connection
+echo 2. Verify server IP: %SERVER_IP%
+echo 3. Verify password
+echo 4. Check OpenSSH client installed
+echo    Enable in Windows Settings
+echo    Or install Git for Windows
+echo.
+echo Press any key to return...
+pause >nul
+goto main_menu
 
