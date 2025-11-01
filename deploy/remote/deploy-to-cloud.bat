@@ -120,6 +120,7 @@ echo NOTE: Enter password once to complete all operations
 echo.
 
 echo Uploading archive...
+echo Local archive: %TEMP_ARCHIVE%
 scp -o StrictHostKeyChecking=no "%TEMP_ARCHIVE%" %SERVER_USER%@%SERVER_IP%:/tmp/
 if errorlevel 1 (
     echo [ERROR] Upload failed
@@ -127,15 +128,20 @@ if errorlevel 1 (
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
+echo [DONE] Upload complete
+echo.
 
 echo Extracting on server...
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "mkdir -p %SERVER_PATH% && cd %SERVER_PATH% && tar -xzf /tmp/%TEMP_ARCHIVE% && rm -f /tmp/%TEMP_ARCHIVE%"
+echo Target path: %SERVER_PATH%
+echo Archive name: %TEMP_ARCHIVE%
+ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "echo '[Step 1/6] Verifying uploaded archive...' && ls -lh /tmp/%TEMP_ARCHIVE% && echo '[Step 2/6] Creating target directory...' && mkdir -p %SERVER_PATH% && echo '[Step 3/6] Listing files before extract...' && ls -l %SERVER_PATH%/ 2>/dev/null || echo '  Directory is empty or new' && echo '[Step 4/6] Removing old files...' && cd %SERVER_PATH% && rm -f vertex-backend.jar schema.sql docker-compose.yml Dockerfile && echo '[Step 5/6] Extracting archive...' && tar -xzvf /tmp/%TEMP_ARCHIVE% && echo '[Step 6/6] Verifying extracted files...' && ls -lh %SERVER_PATH%/ && echo '[Cleanup] Removing temp archive...' && rm -f /tmp/%TEMP_ARCHIVE% && echo '[SUCCESS] All operations completed'"
 if errorlevel 1 (
     echo [ERROR] Extract failed
     del "%TEMP_ARCHIVE%" 2>nul
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
+echo [DONE] Extract complete
 
 echo.
 echo Cleaning temp files...
