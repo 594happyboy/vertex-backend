@@ -77,18 +77,21 @@ data class DocumentDetail(
 }
 
 /**
- * 文档列表查询参数
+ * 文档列表查询参数（游标分页）
  */
 data class DocumentQueryRequest(
-    val q: String? = null,      // 搜索关键词
-    val groupId: Long? = null,   // 分组过滤
-    val page: Int = 1,           // 页码
-    val size: Int = 20           // 每页大小
+    val q: String? = null,           // 搜索关键词
+    val groupId: Long? = null,       // 分组过滤
+    val cursor: String? = null,      // 游标
+    val limit: Int = 20,             // 每页大小
+    val sortBy: String = "default",  // 排序字段：default, title, createdAt, updatedAt
+    val order: String = "asc"        // 排序方向：asc, desc
 )
 
 /**
- * 文档列表响应
+ * 文档列表响应（已废弃，使用 PaginatedResponse<DocumentItem> 替代）
  */
+@Deprecated("使用 com.zzy.common.pagination.PaginatedResponse<DocumentItem> 替代")
 data class DocumentListResponse(
     val items: List<DocumentItem>,
     val total: Long

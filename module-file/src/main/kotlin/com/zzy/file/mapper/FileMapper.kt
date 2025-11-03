@@ -105,7 +105,7 @@ interface FileMapper : BaseMapper<FileMetadata> {
             </foreach>
         </script>
     """)
-    fun batchSoftDelete(ids: List<Long>): Int
+    fun batchSoftDelete(@Param("ids") ids: List<Long>): Int
     
     /**
      * 恢复文件
@@ -130,6 +130,32 @@ interface FileMapper : BaseMapper<FileMetadata> {
         @Param("userId") userId: Long,
         @Param("offset") offset: Long,
         @Param("limit") limit: Long
+    ): List<FileMetadata>
+    
+    /**
+     * 游标分页查询回收站文件
+     */
+    @Select("""
+        <script>
+            SELECT * FROM file_metadata 
+            WHERE user_id = #{userId} 
+            AND deleted = 1 
+            AND deleted_at IS NOT NULL
+            <if test="lastId != null and lastDeletedAt != null">
+                AND (
+                    (deleted_at &lt; #{lastDeletedAt})
+                    OR (deleted_at = #{lastDeletedAt} AND id &lt; #{lastId})
+                )
+            </if>
+            ORDER BY deleted_at DESC, id DESC
+            LIMIT #{limit}
+        </script>
+    """)
+    fun selectRecycleBinWithCursor(
+        @Param("userId") userId: Long,
+        @Param("lastId") lastId: Long?,
+        @Param("lastDeletedAt") lastDeletedAt: String?,
+        @Param("limit") limit: Int
     ): List<FileMetadata>
     
     /**
@@ -159,4 +185,87 @@ interface FileMapper : BaseMapper<FileMetadata> {
         WHERE id = #{id}
     """)
     fun hardDelete(id: Long): Int
+    
+    /**
+     * 游标分页查询文件（仅文件）
+     * 注意：sortField 和 sortOrder 使用 ${} 进行字符串替换，需要在调用时确保参数安全
+     */
+    @Select("""
+        <script>
+            SELECT * FROM file_metadata 
+            WHERE user_id = #{userId} 
+            AND deleted = 0
+            <if test="folderId != null">
+                AND folder_id = #{folderId}
+            </if>
+            <if test="folderId == null">
+                AND folder_id IS NULL
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND file_name LIKE CONCAT('%', #{keyword}, '%')
+            </if>
+            <if test="lastId != null and lastSortValue != null">
+                <choose>
+                    <when test='sortOrder == "desc"'>
+                        AND (
+                            (${'$'}{sortField} &lt; #{lastSortValue}) 
+                            OR (${'$'}{sortField} = #{lastSortValue} AND id &lt; #{lastId})
+                        )
+                    </when>
+                    <otherwise>
+                        AND (
+                            (${'$'}{sortField} &gt; #{lastSortValue}) 
+                            OR (${'$'}{sortField} = #{lastSortValue} AND id &gt; #{lastId})
+                        )
+                    </otherwise>
+                </choose>
+            </if>
+            ORDER BY ${'$'}{sortField} ${'$'}{sortOrder}, id ${'$'}{sortOrder}
+            LIMIT #{limit}
+        </script>
+    """)
+    fun selectFilesWithCursor(
+        @Param("userId") userId: Long,
+        @Param("folderId") folderId: Long?,
+        @Param("keyword") keyword: String?,
+        @Param("sortField") sortField: String,
+        @Param("sortOrder") sortOrder: String,
+        @Param("lastId") lastId: Long?,
+        @Param("lastSortValue") lastSortValue: String?,
+        @Param("limit") limit: Int
+    ): List<FileMetadata>
+    
+    /**
+     * 增加引用计数
+     */
+    @Update("""
+        UPDATE file_metadata 
+        SET reference_count = reference_count + 1, 
+            last_referenced_at = NOW() 
+        WHERE id = #{fileId}
+    """)
+    fun incrementReferenceCount(@Param("fileId") fileId: Long): Int
+    
+    /**
+     * 减少引用计数
+     */
+    @Update("""
+        UPDATE file_metadata 
+        SET reference_count = reference_count - 1 
+        WHERE id = #{fileId} AND reference_count > 0
+    """)
+    fun decrementReferenceCount(@Param("fileId") fileId: Long): Int
+    
+    /**
+     * 查询未被引用的文件
+     */
+    @Select("""
+        SELECT * FROM file_metadata 
+        WHERE deleted = FALSE 
+        AND reference_count = 0 
+        AND upload_time < #{threshold}
+        ORDER BY upload_time ASC
+        LIMIT 1000
+    """)
+    fun selectUnreferencedFiles(@Param("threshold") threshold: String): List<FileMetadata>
 }

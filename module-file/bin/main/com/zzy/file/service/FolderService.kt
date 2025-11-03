@@ -1,13 +1,16 @@
 package com.zzy.file.service
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
-import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper
 import com.zzy.common.exception.BusinessException
 import com.zzy.common.util.RedisUtil
+import com.zzy.file.constants.FileConstants
+import com.zzy.file.util.FileSizeFormatter
 import com.zzy.file.dto.*
 import com.zzy.file.entity.FileFolder
 import com.zzy.file.mapper.FolderMapper
 import com.zzy.file.mapper.FileMapper
+import com.zzy.file.service.common.ValidationService
+import com.zzy.file.service.common.PathBuilderService
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -23,31 +26,25 @@ import java.util.concurrent.TimeUnit
 class FolderService(
     private val folderMapper: FolderMapper,
     private val fileMapper: FileMapper,
-    private val redisUtil: RedisUtil
+    private val redisUtil: RedisUtil,
+    private val validationService: ValidationService,
+    private val pathBuilderService: PathBuilderService
 ) {
     
     private val logger = LoggerFactory.getLogger(FolderService::class.java)
-    
-    companion object {
-        private const val CACHE_KEY_FOLDER_TREE = "folder:tree:"
-        private const val CACHE_KEY_FOLDER_INFO = "folder:info:"
-        private const val CACHE_KEY_FOLDER_PATH = "folder:path:"
-        private const val CACHE_EXPIRE_TIME = 300L // 5分钟
-    }
     
     /**
      * 获取用户的文件夹树
      */
     fun getFolderTree(userId: Long, includeStats: Boolean = false): FolderTreeResponse {
         // 尝试从缓存获取
-        val cacheKey = "$CACHE_KEY_FOLDER_TREE$userId:$includeStats"
-        val cached = redisUtil.get(cacheKey, FolderTreeResponse::class.java)
-        if (cached != null) {
+        val cacheKey = "${FileConstants.Cache.KEY_FOLDER_TREE}$userId:$includeStats"
+        redisUtil.get(cacheKey, FolderTreeResponse::class.java)?.let {
             logger.debug("从缓存获取文件夹树: userId={}", userId)
-            return cached
+            return it
         }
         
-        // 查询所有未删除的文件夹（手动过滤已删除的记录）
+        // 查询所有未删除的文件夹
         val allFolders = folderMapper.selectList(
             QueryWrapper<FileFolder>()
                 .eq("user_id", userId)
@@ -58,29 +55,12 @@ class FolderService(
         // 如果需要统计信息，填充统计数据
         if (includeStats) {
             allFolders.forEach { folder ->
-                folder.fileCount = folderMapper.countFilesByFolderId(folder.id!!)
-                folder.subFolderCount = folderMapper.countSubFoldersByFolderId(folder.id!!)
-                folder.totalSize = folderMapper.calculateTotalSize(folder.id!!)
+                fillFolderStatistics(folder)
             }
         }
         
         // 构建树形结构
-        val folderMap = allFolders.associateBy { it.id }
-        val rootFolders = mutableListOf<FileFolder>()
-        
-        allFolders.forEach { folder ->
-            if (folder.parentId == null) {
-                rootFolders.add(folder)
-            } else {
-                val parent = folderMap[folder.parentId]
-                if (parent != null) {
-                    if (parent.children == null) {
-                        parent.children = mutableListOf()
-                    }
-                    parent.children!!.add(folder)
-                }
-            }
-        }
+        val rootFolders = buildFolderTree(allFolders)
         
         // 统计总数
         val totalFiles = fileMapper.countByUserId(userId)
@@ -91,13 +71,43 @@ class FolderService(
             totalFolders = allFolders.size,
             totalFiles = totalFiles,
             totalSize = totalSize,
-            totalSizeFormatted = formatFileSize(totalSize)
+            totalSizeFormatted = FileSizeFormatter.format(totalSize)
         )
         
         // 缓存结果
-        redisUtil.set(cacheKey, response, CACHE_EXPIRE_TIME, TimeUnit.SECONDS)
-        
+        redisUtil.set(cacheKey, response, FileConstants.Cache.EXPIRE_SHORT, TimeUnit.SECONDS)
         return response
+    }
+    
+    /**
+     * 构建文件夹树形结构
+     */
+    private fun buildFolderTree(folders: List<FileFolder>): List<FileFolder> {
+        val folderMap = folders.associateBy { it.id }
+        val rootFolders = mutableListOf<FileFolder>()
+        
+        folders.forEach { folder ->
+            if (folder.parentId == null) {
+                rootFolders.add(folder)
+            } else {
+                folderMap[folder.parentId]?.let { parent ->
+                    parent.children = (parent.children ?: mutableListOf()).apply { add(folder) }
+                }
+            }
+        }
+        
+        return rootFolders
+    }
+    
+    /**
+     * 填充文件夹统计信息
+     */
+    private fun fillFolderStatistics(folder: FileFolder) {
+        folder.id?.let { folderId ->
+            folder.fileCount = folderMapper.countFilesByFolderId(folderId)
+            folder.subFolderCount = folderMapper.countSubFoldersByFolderId(folderId)
+            folder.totalSize = folderMapper.calculateTotalSize(folderId)
+        }
     }
     
     /**
@@ -105,36 +115,51 @@ class FolderService(
      */
     fun getFolderInfo(folderId: Long, userId: Long): FolderResponse {
         // 尝试从缓存获取
-        val cacheKey = "$CACHE_KEY_FOLDER_INFO$folderId"
-        val cached = redisUtil.get(cacheKey, FolderResponse::class.java)
-        if (cached != null) {
+        val cacheKey = "${FileConstants.Cache.KEY_FOLDER_INFO}$folderId"
+        redisUtil.get(cacheKey, FolderResponse::class.java)?.let {
             logger.debug("从缓存获取文件夹信息: folderId={}", folderId)
-            return cached
+            return it
         }
         
-        val folder = folderMapper.selectById(folderId)
-            ?: throw BusinessException(404, "文件夹不存在")
-        
-        // 权限检查
-        if (folder.userId != userId) {
-            throw BusinessException(403, "无权访问该文件夹")
-        }
-        
-        if (folder.deleted) {
-            throw BusinessException(404, "文件夹已被删除")
-        }
-        
-        // 填充统计信息
-        folder.fileCount = folderMapper.countFilesByFolderId(folderId)
-        folder.subFolderCount = folderMapper.countSubFoldersByFolderId(folderId)
-        folder.totalSize = folderMapper.calculateTotalSize(folderId)
+        val folder = validationService.validateAndGetFolder(folderId, userId)
+        fillFolderStatistics(folder)
         
         val response = FolderResponse.fromEntity(folder)
         
         // 缓存结果
-        redisUtil.set(cacheKey, response, CACHE_EXPIRE_TIME, TimeUnit.SECONDS)
-        
+        redisUtil.set(cacheKey, response, FileConstants.Cache.EXPIRE_SHORT, TimeUnit.SECONDS)
         return response
+    }
+    
+    /**
+     * 获取文件夹详情（包含祖先路径）
+     */
+    fun getFolderInfoWithAncestors(folderId: Long, userId: Long): FolderInfoResponse {
+        val folder = validationService.validateAndGetFolder(folderId, userId)
+        
+        // 获取祖先路径
+        val ancestors = pathBuilderService.buildAncestors(folderId, userId)
+        
+        // 统计信息
+        val childFolderCount = folderMapper.countSubFoldersByFolderId(folderId)
+        val childFileCount = folderMapper.countFilesByFolderId(folderId)
+        val totalSize = folderMapper.calculateTotalSize(folderId)
+        
+        return FolderInfoResponse(
+            id = folder.id.toString(),
+            name = folder.name,
+            parentId = folder.parentId?.toString(),
+            childFolderCount = childFolderCount,
+            childFileCount = childFileCount,
+            color = folder.color,
+            ancestors = ancestors,
+            statistics = FolderStatistics(
+                totalSize = totalSize,
+                totalSizeFormatted = FileSizeFormatter.format(totalSize)
+            ),
+            createdAt = folder.createdAt?.toString() ?: "",
+            updatedAt = folder.updatedAt?.toString() ?: ""
+        )
     }
     
     /**
@@ -207,17 +232,7 @@ class FolderService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun updateFolder(folderId: Long, userId: Long, request: UpdateFolderRequest): FolderResponse {
-        val folder = folderMapper.selectById(folderId)
-            ?: throw BusinessException(404, "文件夹不存在")
-        
-        // 权限检查
-        if (folder.userId != userId) {
-            throw BusinessException(403, "无权修改该文件夹")
-        }
-        
-        if (folder.deleted) {
-            throw BusinessException(404, "文件夹已被删除")
-        }
+        val folder = validationService.validateAndGetFolder(folderId, userId)
         
         // 更新字段
         var updated = false
@@ -304,17 +319,7 @@ class FolderService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun deleteFolder(folderId: Long, userId: Long, recursive: Boolean = false): Boolean {
-        val folder = folderMapper.selectById(folderId)
-            ?: throw BusinessException(404, "文件夹不存在")
-        
-        // 权限检查
-        if (folder.userId != userId) {
-            throw BusinessException(403, "无权删除该文件夹")
-        }
-        
-        if (folder.deleted) {
-            throw BusinessException(404, "文件夹已被删除")
-        }
+        val folder = validationService.validateAndGetFolder(folderId, userId)
         
         // 检查是否有子文件夹或文件
         val hasSubFolders = folderMapper.countSubFoldersByFolderId(folderId) > 0
@@ -362,40 +367,19 @@ class FolderService(
      * 获取文件夹路径（面包屑导航）
      */
     fun getFolderPath(folderId: Long?, userId: Long): FolderPathResponse {
-        if (folderId == null) {
-            return FolderPathResponse(path = emptyList())
-        }
+        folderId ?: return FolderPathResponse(path = emptyList())
         
         // 尝试从缓存获取
-        val cacheKey = "$CACHE_KEY_FOLDER_PATH$folderId"
-        val cached = redisUtil.get(cacheKey, FolderPathResponse::class.java)
-        if (cached != null) {
-            return cached
+        val cacheKey = "${FileConstants.Cache.KEY_FOLDER_PATH}$folderId"
+        redisUtil.get(cacheKey, FolderPathResponse::class.java)?.let {
+            return it
         }
         
-        val path = mutableListOf<FolderPathItem>()
-        var currentId: Long? = folderId
-        
-        while (currentId != null) {
-            val folder = folderMapper.selectById(currentId)
-            if (folder == null || folder.deleted) {
-                break
-            }
-            
-            // 权限检查
-            if (folder.userId != userId) {
-                break
-            }
-            
-            path.add(0, FolderPathItem(id = folder.id!!, name = folder.name))
-            currentId = folder.parentId
-        }
-        
+        val path = pathBuilderService.buildFolderPath(folderId, userId)
         val response = FolderPathResponse(path = path)
         
         // 缓存结果
-        redisUtil.set(cacheKey, response, CACHE_EXPIRE_TIME, TimeUnit.SECONDS)
-        
+        redisUtil.set(cacheKey, response, FileConstants.Cache.EXPIRE_SHORT, TimeUnit.SECONDS)
         return response
     }
     
@@ -407,12 +391,7 @@ class FolderService(
         // 验证所有文件夹的归属
         val folderIds = request.items.map { it.id }
         val folders = folderMapper.selectBatchIds(folderIds)
-        
-        folders.forEach { folder ->
-            if (folder.userId != userId) {
-                throw BusinessException(403, "无权操作文件夹: ${folder.name}")
-            }
-        }
+        validationService.validateFolderOwnership(folders, userId)
         
         // 批量更新排序索引
         val sortItems = request.items.map { 
@@ -430,30 +409,18 @@ class FolderService(
     }
     
     /**
-     * 格式化文件大小
-     */
-    private fun formatFileSize(size: Long): String {
-        return when {
-            size < 1024 -> "$size B"
-            size < 1024 * 1024 -> String.format("%.2f KB", size / 1024.0)
-            size < 1024 * 1024 * 1024 -> String.format("%.2f MB", size / (1024.0 * 1024))
-            else -> String.format("%.2f GB", size / (1024.0 * 1024 * 1024))
-        }
-    }
-    
-    /**
      * 清除文件夹树缓存
      */
     private fun clearFolderCache(userId: Long) {
-        redisUtil.deleteByPattern("$CACHE_KEY_FOLDER_TREE$userId:*")
+        redisUtil.deleteByPattern("${FileConstants.Cache.KEY_FOLDER_TREE}$userId:*")
     }
     
     /**
      * 清除文件夹信息缓存
      */
     private fun clearFolderInfoCache(folderId: Long) {
-        redisUtil.delete("$CACHE_KEY_FOLDER_INFO$folderId")
-        redisUtil.delete("$CACHE_KEY_FOLDER_PATH$folderId")
+        redisUtil.delete("${FileConstants.Cache.KEY_FOLDER_INFO}$folderId")
+        redisUtil.delete("${FileConstants.Cache.KEY_FOLDER_PATH}$folderId")
     }
 }
 

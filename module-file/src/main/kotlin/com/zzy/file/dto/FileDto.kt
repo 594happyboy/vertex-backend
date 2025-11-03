@@ -1,7 +1,9 @@
 package com.zzy.file.dto
 
 import com.zzy.file.entity.FileMetadata
-import java.time.format.DateTimeFormatter
+import com.zzy.file.util.DateFormatter
+import com.zzy.file.util.FileSizeFormatter
+import com.zzy.file.constants.FileConstants
 
 /**
  * 文件DTO（重构版）
@@ -29,56 +31,43 @@ data class FileResponse(
     val daysUntilPermanentDeletion: Long? = null
 ) {
     companion object {
-        private val DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-        
         /**
          * 从实体转换为DTO
          */
-        fun fromEntity(entity: FileMetadata, retentionDays: Int = 30): FileResponse {
-            // 计算剩余天数
+        fun fromEntity(
+            entity: FileMetadata, 
+            retentionDays: Int = FileConstants.FileManagement.RETENTION_DAYS
+        ): FileResponse {
             val daysUntilDeletion = entity.deletedAt?.let { deletedAt ->
                 val daysPassed = java.time.Duration.between(deletedAt, java.time.LocalDateTime.now()).toDays()
-                val remaining = retentionDays - daysPassed
-                if (remaining > 0) remaining else 0
+                (retentionDays - daysPassed).coerceAtLeast(0)
             }
             
+            val extension = entity.fileExtension ?: ""
             return FileResponse(
                 id = entity.id ?: 0,
                 fileName = entity.fileName ?: "",
                 fileSize = entity.fileSize ?: 0,
-                fileSizeFormatted = formatFileSize(entity.fileSize ?: 0),
+                fileSizeFormatted = FileSizeFormatter.format(entity.fileSize ?: 0),
                 fileType = entity.fileType ?: "unknown",
-                fileExtension = entity.fileExtension ?: "",
+                fileExtension = extension,
                 folderId = entity.folderId,
                 description = entity.description,
-                uploadTime = entity.uploadTime?.format(DATE_FORMATTER) ?: "",
-                updateTime = entity.updateTime?.format(DATE_FORMATTER) ?: "",
+                uploadTime = DateFormatter.format(entity.uploadTime),
+                updateTime = DateFormatter.format(entity.updateTime),
                 downloadCount = entity.downloadCount,
                 downloadUrl = "/api/files/${entity.id}/download",
-                previewUrl = if (isPreviewable(entity.fileExtension)) "/api/files/${entity.id}/preview" else null,
-                deletedAt = entity.deletedAt?.format(DATE_FORMATTER),
+                previewUrl = if (isPreviewable(extension)) "/api/files/${entity.id}/preview" else null,
+                deletedAt = DateFormatter.format(entity.deletedAt),
                 daysUntilPermanentDeletion = daysUntilDeletion
             )
         }
         
         /**
-         * 格式化文件大小
-         */
-        private fun formatFileSize(size: Long): String {
-            return when {
-                size < 1024 -> "$size B"
-                size < 1024 * 1024 -> String.format("%.2f KB", size / 1024.0)
-                size < 1024 * 1024 * 1024 -> String.format("%.2f MB", size / (1024.0 * 1024))
-                else -> String.format("%.2f GB", size / (1024.0 * 1024 * 1024))
-            }
-        }
-        
-        /**
          * 判断文件是否支持预览
          */
-        private fun isPreviewable(extension: String?): Boolean {
-            val previewableExts = setOf("jpg", "jpeg", "png", "gif", "pdf", "txt", "md")
-            return extension?.lowercase() in previewableExts
+        private fun isPreviewable(extension: String): Boolean {
+            return extension.lowercase() in FileConstants.PREVIEWABLE_EXTENSIONS
         }
     }
 }

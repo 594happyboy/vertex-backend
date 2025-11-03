@@ -38,7 +38,7 @@ interface FolderMapper : BaseMapper<FileFolder> {
             </foreach>
         </script>
     """)
-    fun batchSoftDelete(ids: List<Long>): Int
+    fun batchSoftDelete(@Param("ids") ids: List<Long>): Int
     
     /**
      * 查询某个文件夹下的文件数量
@@ -118,6 +118,75 @@ interface FolderMapper : BaseMapper<FileFolder> {
         SELECT id FROM folder_tree
     """)
     fun getDescendantIds(folderId: Long): List<Long>
+    
+    /**
+     * 查询根目录下的子文件夹数量
+     */
+    @Select("""
+        SELECT COUNT(*) 
+        FROM file_folders 
+        WHERE user_id = #{userId} AND parent_id IS NULL AND deleted = 0
+    """)
+    fun countRootFolders(userId: Long): Int
+    
+    /**
+     * 查询根目录下的文件数量
+     */
+    @Select("""
+        SELECT COUNT(*) 
+        FROM file_metadata 
+        WHERE user_id = #{userId} AND folder_id IS NULL AND deleted = 0
+    """)
+    fun countRootFiles(userId: Long): Int
+    
+    /**
+     * 游标分页查询子文件夹（仅文件夹）
+     * 注意：sortField 和 sortOrder 使用 ${} 进行字符串替换，需要在调用时确保参数安全
+     */
+    @Select("""
+        <script>
+            SELECT * FROM file_folders 
+            WHERE user_id = #{userId} 
+            AND deleted = 0
+            <if test="parentId != null">
+                AND parent_id = #{parentId}
+            </if>
+            <if test="parentId == null">
+                AND parent_id IS NULL
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND name LIKE CONCAT('%', #{keyword}, '%')
+            </if>
+            <if test="lastId != null and lastSortValue != null">
+                <choose>
+                    <when test='sortOrder == "desc"'>
+                        AND (
+                            (${'$'}{sortField} &lt; #{lastSortValue}) 
+                            OR (${'$'}{sortField} = #{lastSortValue} AND id &lt; #{lastId})
+                        )
+                    </when>
+                    <otherwise>
+                        AND (
+                            (${'$'}{sortField} &gt; #{lastSortValue}) 
+                            OR (${'$'}{sortField} = #{lastSortValue} AND id &gt; #{lastId})
+                        )
+                    </otherwise>
+                </choose>
+            </if>
+            ORDER BY ${'$'}{sortField} ${'$'}{sortOrder}, id ${'$'}{sortOrder}
+            LIMIT #{limit}
+        </script>
+    """)
+    fun selectFoldersWithCursor(
+        @Param("userId") userId: Long,
+        @Param("parentId") parentId: Long?,
+        @Param("keyword") keyword: String?,
+        @Param("sortField") sortField: String,
+        @Param("sortOrder") sortOrder: String,
+        @Param("lastId") lastId: Long?,
+        @Param("lastSortValue") lastSortValue: String?,
+        @Param("limit") limit: Int
+    ): List<FileFolder>
 }
 
 /**

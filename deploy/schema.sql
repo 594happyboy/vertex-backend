@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS file_metadata (
     file_md5 VARCHAR(64) COMMENT '文件MD5值(用于秒传)',
     download_count INT DEFAULT 0 COMMENT '下载次数',
     description TEXT NULL COMMENT '文件描述',
+    reference_count INT NOT NULL DEFAULT 0 COMMENT '引用计数',
+    last_referenced_at DATETIME NULL COMMENT '最后被引用时间',
     deleted BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否删除（软删除）',
     deleted_at DATETIME NULL COMMENT '删除时间',
     upload_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间',
@@ -66,8 +68,23 @@ CREATE TABLE IF NOT EXISTS file_metadata (
     INDEX idx_deleted (deleted),
     INDEX idx_deleted_at (deleted_at),
     INDEX idx_user_folder (user_id, folder_id, deleted),
+    INDEX idx_reference_count (reference_count, deleted),
     FULLTEXT INDEX idx_file_name_ft (file_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文件元数据表';
+
+-- 文件引用关系表
+CREATE TABLE IF NOT EXISTS file_references (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '引用ID',
+    file_id BIGINT NOT NULL COMMENT '文件ID',
+    reference_type VARCHAR(32) NOT NULL COMMENT '引用类型: document/document_content',
+    reference_id BIGINT NOT NULL COMMENT '引用对象ID（如文档ID）',
+    reference_field VARCHAR(64) NULL COMMENT '引用字段（如：content/description）',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    FOREIGN KEY (file_id) REFERENCES file_metadata(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_reference (file_id, reference_type, reference_id, reference_field),
+    INDEX idx_file_id (file_id),
+    INDEX idx_reference (reference_type, reference_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文件引用关系表';
 
 -- ============================================
 -- 博客管理模块（按照 backend-spec.md 设计）

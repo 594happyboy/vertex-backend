@@ -47,6 +47,12 @@ data class FileMetadata(
     /** 文件描述 */
     var description: String? = null,
     
+    /** 引用计数 */
+    var referenceCount: Int = 0,
+    
+    /** 最后被引用时间 */
+    var lastReferencedAt: LocalDateTime? = null,
+    
     /** 是否删除（软删除） */
     var deleted: Boolean = false,
     

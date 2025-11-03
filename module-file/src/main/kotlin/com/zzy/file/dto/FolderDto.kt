@@ -1,7 +1,8 @@
 package com.zzy.file.dto
 
 import com.zzy.file.entity.FileFolder
-import java.time.format.DateTimeFormatter
+import com.zzy.file.util.DateFormatter
+import com.zzy.file.util.FileSizeFormatter
 
 /**
  * 文件夹DTO
@@ -26,8 +27,6 @@ data class FolderResponse(
     val children: List<FolderResponse>? = null
 ) {
     companion object {
-        private val DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-        
         /**
          * 从实体转换为DTO
          */
@@ -42,23 +41,11 @@ data class FolderResponse(
                 fileCount = entity.fileCount ?: 0,
                 subFolderCount = entity.subFolderCount ?: 0,
                 totalSize = entity.totalSize ?: 0,
-                totalSizeFormatted = formatFileSize(entity.totalSize ?: 0),
-                createdAt = entity.createdAt?.format(DATE_FORMATTER) ?: "",
-                updatedAt = entity.updatedAt?.format(DATE_FORMATTER) ?: "",
+                totalSizeFormatted = FileSizeFormatter.format(entity.totalSize ?: 0),
+                createdAt = DateFormatter.format(entity.createdAt),
+                updatedAt = DateFormatter.format(entity.updatedAt),
                 children = entity.children?.map { fromEntity(it) }
             )
-        }
-        
-        /**
-         * 格式化文件大小
-         */
-        private fun formatFileSize(size: Long): String {
-            return when {
-                size < 1024 -> "$size B"
-                size < 1024 * 1024 -> String.format("%.2f KB", size / 1024.0)
-                size < 1024 * 1024 * 1024 -> String.format("%.2f MB", size / (1024.0 * 1024))
-                else -> String.format("%.2f GB", size / (1024.0 * 1024 * 1024))
-            }
         }
     }
 }

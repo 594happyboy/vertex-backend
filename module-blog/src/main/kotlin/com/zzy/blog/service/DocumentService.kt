@@ -9,6 +9,11 @@ import com.zzy.blog.exception.ForbiddenException
 import com.zzy.blog.exception.ResourceNotFoundException
 import com.zzy.blog.mapper.DocumentMapper
 import com.zzy.file.service.FileService
+import com.zzy.file.service.FileReferenceService
+import com.zzy.file.entity.ReferenceType
+import com.zzy.common.pagination.CursorParams
+import com.zzy.common.pagination.CursorUtil
+import com.zzy.common.pagination.PaginatedResponse
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -23,7 +28,10 @@ import org.springframework.web.multipart.MultipartFile
 class DocumentService(
     private val documentMapper: DocumentMapper,
     private val directoryTreeService: DirectoryTreeService,
-    private val fileService: FileService
+    private val fileService: FileService,
+    private val folderService: com.zzy.file.service.FolderService,
+    private val fileReferenceService: FileReferenceService,
+    private val asyncFileReferenceService: AsyncFileReferenceService
 ) {
     
     private val logger = LoggerFactory.getLogger(DocumentService::class.java)
@@ -31,42 +39,120 @@ class DocumentService(
     companion object {
         // 支持的文档文件类型
         private val SUPPORTED_EXTENSIONS = setOf("md", "pdf", "txt")
+        private const val MAX_LIMIT = 100
     }
     
     /**
-     * 查询文档列表
+     * 查询文档列表（游标分页）
      */
-    fun getDocuments(request: DocumentQueryRequest): DocumentListResponse {
+    fun getDocuments(request: DocumentQueryRequest): PaginatedResponse<DocumentItem> {
         val authUser = AuthContextHolder.getAuthUser()
             ?: throw ForbiddenException("未登录")
         
-        // 构建查询条件（手动过滤已删除的记录）
-        val wrapper = QueryWrapper<Document>()
+        // 验证限制
+        val limit = request.limit.coerceIn(1, MAX_LIMIT)
         
-        // 用户只能查询自己的文档
-        wrapper.eq("user_id", authUser.userId)
-            .eq("deleted", false)
+        // 解析游标
+        var lastId: Long? = null
+        var lastSortValue: String? = null
         
-        // 分组过滤
-        request.groupId?.let { wrapper.eq("group_id", it) }
-        
-        // 搜索关键词（标题）
-        request.q?.let { 
-            if (it.isNotBlank()) {
-                wrapper.like("title", it)
+        if (request.cursor != null) {
+            val cursorParams = CursorUtil.decodeCursor(request.cursor)
+            if (cursorParams != null) {
+                // 验证游标参数是否匹配当前请求
+                if (!CursorUtil.validateCursorParams(
+                        cursorParams,
+                        request.sortBy,
+                        request.order,
+                        request.q
+                    )
+                ) {
+                    throw IllegalArgumentException("游标已失效，请重新请求")
+                }
+                lastId = cursorParams.lastId
+                lastSortValue = cursorParams.lastSortValue
             }
         }
         
-        // 排序
-        wrapper.orderByAsc("sort_index")
-            .orderByDesc("created_at")
-        
-        // 分页查询
-        val page = Page<Document>(request.page.toLong(), request.size.toLong())
-        val result = documentMapper.selectPage(page, wrapper)
+        // 根据排序字段和方向调用不同的查询方法
+        val documents = when (request.sortBy) {
+            "title" -> {
+                if (request.order == "asc") {
+                    documentMapper.selectDocumentsByTitleAsc(
+                        userId = authUser.userId,
+                        groupId = request.groupId,
+                        keyword = request.q,
+                        lastId = lastId,
+                        lastSortValue = lastSortValue,
+                        limit = limit + 1
+                    )
+                } else {
+                    documentMapper.selectDocumentsByTitleDesc(
+                        userId = authUser.userId,
+                        groupId = request.groupId,
+                        keyword = request.q,
+                        lastId = lastId,
+                        lastSortValue = lastSortValue,
+                        limit = limit + 1
+                    )
+                }
+            }
+            "createdAt" -> {
+                if (request.order == "asc") {
+                    documentMapper.selectDocumentsByCreatedAtAsc(
+                        userId = authUser.userId,
+                        groupId = request.groupId,
+                        keyword = request.q,
+                        lastId = lastId,
+                        lastSortValue = lastSortValue,
+                        limit = limit + 1
+                    )
+                } else {
+                    documentMapper.selectDocumentsByCreatedAtDesc(
+                        userId = authUser.userId,
+                        groupId = request.groupId,
+                        keyword = request.q,
+                        lastId = lastId,
+                        lastSortValue = lastSortValue,
+                        limit = limit + 1
+                    )
+                }
+            }
+            "updatedAt" -> {
+                if (request.order == "asc") {
+                    documentMapper.selectDocumentsByUpdatedAtAsc(
+                        userId = authUser.userId,
+                        groupId = request.groupId,
+                        keyword = request.q,
+                        lastId = lastId,
+                        lastSortValue = lastSortValue,
+                        limit = limit + 1
+                    )
+                } else {
+                    documentMapper.selectDocumentsByUpdatedAtDesc(
+                        userId = authUser.userId,
+                        groupId = request.groupId,
+                        keyword = request.q,
+                        lastId = lastId,
+                        lastSortValue = lastSortValue,
+                        limit = limit + 1
+                    )
+                }
+            }
+            else -> {
+                // 默认排序
+                documentMapper.selectDocumentsDefault(
+                    userId = authUser.userId,
+                    groupId = request.groupId,
+                    keyword = request.q,
+                    lastId = lastId,
+                    limit = limit + 1
+                )
+            }
+        }
         
         // 转换为DTO
-        val items = result.records.map { doc ->
+        val items = documents.take(limit).map { doc ->
             DocumentItem(
                 id = doc.id!!,
                 title = doc.title,
@@ -78,9 +164,42 @@ class DocumentService(
             )
         }
         
-        return DocumentListResponse(
+        // 判断是否还有更多
+        val hasMore = documents.size > limit
+        val nextCursor = if (hasMore && items.isNotEmpty()) {
+            val lastItem = documents[limit - 1]
+            encodeCursor(lastItem, request)
+        } else {
+            null
+        }
+        
+        return PaginatedResponse.of(
             items = items,
-            total = result.total
+            limit = limit,
+            nextCursor = nextCursor,
+            hasMore = hasMore
+        )
+    }
+    
+    /**
+     * 编码游标
+     */
+    private fun encodeCursor(document: Document, request: DocumentQueryRequest): String {
+        val sortValue = when (request.sortBy) {
+            "title" -> document.title
+            "createdAt" -> document.createdAt?.toString() ?: ""
+            "updatedAt" -> document.updatedAt?.toString() ?: ""
+            else -> document.sortIndex.toString()
+        }
+        
+        return CursorUtil.encodeCursor(
+            CursorParams(
+                lastId = document.id!!,
+                lastSortValue = sortValue,
+                sortField = request.sortBy,
+                sortOrder = request.order,
+                keyword = request.q
+            )
         )
     }
     
@@ -117,12 +236,12 @@ class DocumentService(
             throw IllegalArgumentException("不支持的文件类型: $extension，仅支持: ${SUPPORTED_EXTENSIONS.joinToString()}")
         }
         
-        // 1. 上传文件到文件管理系统
-        val fileResponse = fileService.uploadFile(
-
+        // 1. 上传文件到系统/知识库文件夹（使用统一的系统文件夹管理）
+        val fileResponse = fileService.uploadToSystemFolder(
             userId = userId,
             file = file,
-            request = com.zzy.file.dto.FileUploadRequest()
+            folderType = com.zzy.file.service.SystemFolderManager.SystemFolderType.KNOWLEDGE_BASE,
+                description = "知识库文档：${request.title}"
         )
         
         // 2. 创建文档记录
@@ -138,6 +257,30 @@ class DocumentService(
         
         documentMapper.insert(document)
         logger.info("创建文档: id={}, title={}, fileId={}", document.id, document.title, document.fileId)
+        
+        // 3. 添加文件引用
+        fileReferenceService.addReference(
+            fileId = fileResponse.id,
+            referenceType = ReferenceType.DOCUMENT.value,
+            referenceId = document.id!!
+        )
+        logger.debug("添加文档文件引用: documentId={}, fileId={}", document.id, fileResponse.id)
+        
+        // 4. 如果是Markdown文件，异步同步文档内容中的文件引用
+        if (extension == "md") {
+            try {
+                val content = file.inputStream.bufferedReader().use { it.readText() }
+                // 使用异步方法，不阻塞主流程
+                asyncFileReferenceService.syncDocumentContentReferencesAsync(document.id!!, content)
+                    .exceptionally { e ->
+                        logger.warn("异步同步文档内容引用失败: documentId={}", document.id, e)
+                        null
+                    }
+                logger.debug("已提交文档内容引用异步同步任务: documentId={}", document.id)
+            } catch (e: Exception) {
+                logger.warn("读取文档内容失败，跳过引用同步: documentId={}", document.id, e)
+            }
+        }
         
         // 清除缓存
         directoryTreeService.clearCache(userId)
@@ -199,8 +342,15 @@ class DocumentService(
             throw IllegalArgumentException("不支持的文件类型: $extension")
         }
         
-        // 删除旧文件（如果存在）
+        // 删除旧文件引用（如果存在）
         document.fileId?.let { oldFileId ->
+            fileReferenceService.removeReference(
+                fileId = oldFileId,
+                referenceType = ReferenceType.DOCUMENT.value,
+                referenceId = id
+            )
+            logger.debug("移除旧文件引用: documentId={}, oldFileId={}", id, oldFileId)
+            
             try {
                 fileService.deleteFile(oldFileId, userId)
                 logger.info("删除旧文件: fileId={}", oldFileId)
@@ -209,11 +359,12 @@ class DocumentService(
             }
         }
         
-        // 上传新文件
-        val fileResponse = fileService.uploadFile(
+        // 上传新文件到系统/知识库文件夹（使用统一的系统文件夹管理）
+        val fileResponse = fileService.uploadToSystemFolder(
             userId = userId,
             file = file,
-            request = com.zzy.file.dto.FileUploadRequest()
+            folderType = com.zzy.file.service.SystemFolderManager.SystemFolderType.KNOWLEDGE_BASE,
+                description = "知识库文档：${document.title}"
         )
         
         // 更新文档记录
@@ -223,6 +374,30 @@ class DocumentService(
         
         documentMapper.updateById(document)
         logger.info("更新文档文件: id={}, newFileId={}", id, document.fileId)
+        
+        // 添加新文件引用
+        fileReferenceService.addReference(
+            fileId = fileResponse.id,
+            referenceType = ReferenceType.DOCUMENT.value,
+            referenceId = id
+        )
+        logger.debug("添加新文件引用: documentId={}, newFileId={}", id, fileResponse.id)
+        
+        // 如果是Markdown文件，异步同步文档内容中的文件引用
+        if (extension == "md") {
+            try {
+                val content = file.inputStream.bufferedReader().use { it.readText() }
+                // 使用异步方法，不阻塞主流程
+                asyncFileReferenceService.syncDocumentContentReferencesAsync(id, content)
+                    .exceptionally { e ->
+                        logger.warn("异步同步文档内容引用失败: documentId={}", id, e)
+                        null
+                    }
+                logger.debug("已提交文档内容引用异步同步任务: documentId={}", id)
+            } catch (e: Exception) {
+                logger.warn("读取文档内容失败，跳过引用同步: documentId={}", id, e)
+            }
+        }
         
         // 清除缓存
         directoryTreeService.clearCache(userId)
@@ -245,6 +420,13 @@ class DocumentService(
         if (document.userId != userId) {
             throw ForbiddenException("无权操作此文档")
         }
+        
+        // 移除文档的所有文件引用
+        fileReferenceService.removeAllReferences(
+            referenceType = ReferenceType.DOCUMENT.value,
+            referenceId = id
+        )
+        logger.debug("移除文档所有引用: documentId={}", id)
         
         // 删除关联的文件
         document.fileId?.let { fileId ->

@@ -25,21 +25,25 @@ class DocumentController(
 ) {
     
     /**
-     * 查询文档列表
+     * 查询文档列表（游标分页）
      */
-    @Operation(summary = "查询文档列表", description = "分页查询文档，支持搜索、筛选")
+    @Operation(summary = "查询文档列表", description = "游标分页查询文档，支持搜索、筛选、排序")
     @GetMapping
     fun getDocuments(
         @RequestParam(required = false) q: String?,
         @RequestParam(required = false) groupId: Long?,
-        @RequestParam(defaultValue = "1") page: Int,
-        @RequestParam(defaultValue = "20") size: Int
-    ): ApiResponse<DocumentListResponse> {
+        @RequestParam(required = false) cursor: String?,
+        @RequestParam(defaultValue = "20") limit: Int,
+        @RequestParam(defaultValue = "default") sortBy: String,
+        @RequestParam(defaultValue = "asc") order: String
+    ): ApiResponse<com.zzy.common.pagination.PaginatedResponse<com.zzy.blog.dto.DocumentItem>> {
         val request = DocumentQueryRequest(
             q = q,
             groupId = groupId,
-            page = page,
-            size = size
+            cursor = cursor,
+            limit = limit,
+            sortBy = sortBy,
+            order = order
         )
         val result = documentService.getDocuments(request)
         return ApiResponse.success(result)
