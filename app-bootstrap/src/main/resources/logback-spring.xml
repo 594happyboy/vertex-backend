@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- 定义日志文件存放路径 -->
+    <!-- 优先使用 LOG_PATH 环境变量/启动参数，默认为 logs -->
+    <springProperty scope="context" name="LOG_PATH" source="logging.file.path" defaultValue="logs"/>
+    <!-- 定义日志格式 -->
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"/>
+
+    <!-- ============================================ -->
+    <!-- 控制台输出配置 -->
+    <!-- ============================================ -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %highlight(%-5level) %cyan(%logger{50}) - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ============================================ -->
+    <!-- INFO 级别日志文件配置（INFO、WARN、ERROR） -->
+    <!-- ============================================ -->
+    <appender name="FILE_INFO" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- 当前日志文件 -->
+        <file>${LOG_PATH}/vertex-backend.log</file>
+        
+        <!-- 日志格式 -->
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        
+        <!-- 滚动策略：按日期和大小滚动 -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 历史日志文件命名模式：日期 + 索引 -->
+            <fileNamePattern>${LOG_PATH}/vertex-backend-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <!-- 单个日志文件最大大小 -->
+            <maxFileSize>50MB</maxFileSize>
+            <!-- 保留天数 -->
+            <maxHistory>30</maxHistory>
+            <!-- 总日志大小限制 -->
+            <totalSizeCap>10GB</totalSizeCap>
+        </rollingPolicy>
+        
+        <!-- 过滤器：只记录 INFO 及以上级别 -->
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+    </appender>
+
+    <!-- ============================================ -->
+    <!-- ERROR 级别日志文件配置（仅 ERROR） -->
+    <!-- ============================================ -->
+    <appender name="FILE_ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- 当前日志文件 -->
+        <file>${LOG_PATH}/vertex-backend-error.log</file>
+        
+        <!-- 日志格式 -->
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        
+        <!-- 滚动策略：按日期和大小滚动 -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 历史日志文件命名模式 -->
+            <fileNamePattern>${LOG_PATH}/vertex-backend-error-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <!-- 单个日志文件最大大小 -->
+            <maxFileSize>50MB</maxFileSize>
+            <!-- 保留天数 -->
+            <maxHistory>30</maxHistory>
+            <!-- 总日志大小限制 -->
+            <totalSizeCap>5GB</totalSizeCap>
+        </rollingPolicy>
+        
+        <!-- 过滤器：只记录 ERROR 级别 -->
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+    </appender>
+
+    <!-- ============================================ -->
+    <!-- 异步日志配置 - INFO 日志 -->
+    <!-- ============================================ -->
+    <appender name="ASYNC_FILE_INFO" class="ch.qos.logback.classic.AsyncAppender">
+        <!-- 引用同步 appender -->
+        <appender-ref ref="FILE_INFO"/>
+        <!-- 队列大小 -->
+        <queueSize>512</queueSize>
+        <!-- 丢弃策略：当队列容量达到80%时，丢弃 TRACE、DEBUG、INFO 级别日志 -->
+        <discardingThreshold>0</discardingThreshold>
+        <!-- 队列满时不阻塞，丢弃日志 -->
+        <neverBlock>true</neverBlock>
+    </appender>
+
+    <!-- ============================================ -->
+    <!-- 异步日志配置 - ERROR 日志 -->
+    <!-- ============================================ -->
+    <appender name="ASYNC_FILE_ERROR" class="ch.qos.logback.classic.AsyncAppender">
+        <!-- 引用同步 appender -->
+        <appender-ref ref="FILE_ERROR"/>
+        <!-- 队列大小 -->
+        <queueSize>256</queueSize>
+        <!-- ERROR 日志永不丢弃 -->
+        <discardingThreshold>0</discardingThreshold>
+        <!-- 队列满时阻塞，确保 ERROR 日志不丢失 -->
+        <neverBlock>false</neverBlock>
+    </appender>
+
+    <!-- ============================================ -->
+    <!-- 日志级别配置 -->
+    <!-- ============================================ -->
+    <!-- 根日志级别 -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_FILE_INFO"/>
+        <appender-ref ref="ASYNC_FILE_ERROR"/>
+    </root>
+
+    <!-- 应用日志级别 -->
+    <logger name="com.zzy" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_FILE_INFO"/>
+        <appender-ref ref="ASYNC_FILE_ERROR"/>
+    </logger>
+
+    <!-- 第三方框架日志级别 -->
+    <logger name="org.springframework" level="INFO"/>
+    <logger name="org.mybatis" level="INFO"/>
+    <logger name="com.baomidou.mybatisplus" level="INFO"/>
+</configuration>
+
