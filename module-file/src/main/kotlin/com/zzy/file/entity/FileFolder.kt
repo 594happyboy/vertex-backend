@@ -1,6 +1,7 @@
 package com.zzy.file.entity
 
 import com.baomidou.mybatisplus.annotation.*
+import com.zzy.common.pagination.HasId
 import java.time.LocalDateTime
 
 /**
@@ -12,7 +13,7 @@ import java.time.LocalDateTime
 data class FileFolder(
     /** 文件夹ID */
     @TableId(type = IdType.AUTO)
-    var id: Long? = null,
+    override var id: Long? = null,
     
     /** 用户ID */
     var userId: Long,
@@ -45,7 +46,7 @@ data class FileFolder(
     /** 更新时间 */
     @TableField(fill = FieldFill.INSERT_UPDATE)
     var updatedAt: LocalDateTime? = null
-) {
+) : HasId {
     /** 子文件夹列表（不映射到数据库，用于构建树形结构） */
     @TableField(exist = false)
     var children: MutableList<FileFolder>? = null

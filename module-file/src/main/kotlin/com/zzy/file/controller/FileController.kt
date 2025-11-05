@@ -2,7 +2,7 @@ package com.zzy.file.controller
 
 import com.zzy.common.dto.ApiResponse
 import com.zzy.file.dto.*
-import com.zzy.file.dto.pagination.PaginatedResponse
+import com.zzy.common.pagination.PaginatedResponse
 import com.zzy.file.dto.resource.FileResource
 import com.zzy.file.service.FileService
 import com.zzy.file.service.TrashService

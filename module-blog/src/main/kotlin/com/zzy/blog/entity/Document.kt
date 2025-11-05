@@ -1,6 +1,7 @@
 package com.zzy.blog.entity
 
 import com.baomidou.mybatisplus.annotation.*
+import com.zzy.common.pagination.HasId
 import java.time.LocalDateTime
 
 /**
@@ -12,7 +13,7 @@ import java.time.LocalDateTime
 data class Document(
     /** 文档ID */
     @TableId(type = IdType.AUTO)
-    var id: Long? = null,
+    override var id: Long? = null,
     
     /** 用户ID */
     var userId: Long,
@@ -45,7 +46,7 @@ data class Document(
     /** 更新时间 */
     @TableField(fill = FieldFill.INSERT_UPDATE)
     var updatedAt: LocalDateTime? = null
-)
+) : HasId
 
 /**
  * 文档类型枚举

@@ -5,9 +5,7 @@ import com.zzy.common.util.RedisUtil
 import com.zzy.file.constants.FileConstants
 import com.zzy.file.util.FileSizeFormatter
 import com.zzy.file.dto.*
-import com.zzy.file.dto.pagination.CursorParams
-import com.zzy.file.dto.pagination.CursorUtil
-import com.zzy.file.dto.pagination.PaginatedResponse
+import com.zzy.common.pagination.*
 import com.zzy.file.dto.resource.BaseResource
 import com.zzy.file.dto.resource.FileResource
 import com.zzy.file.dto.resource.FolderResource
@@ -80,120 +78,31 @@ class FolderExplorerService(
     }
     
     /**
-     * 获取目录子项（文件夹+文件混合，支持游标分页）
+     * 获取目录子项（文件夹+文件分离，支持游标分页）
      */
     fun getFolderChildren(
         folderId: Long?,
         userId: Long,
         request: FolderChildrenRequest
-    ): PaginatedResponse<BaseResource> {
+    ): FolderChildrenResponse {
         logger.debug("获取目录子项: folderId={}, userId={}, request={}", folderId, userId, request)
         
-        // 验证限制
-        val limit = request.limit.coerceIn(
-            FileConstants.Pagination.MIN_LIMIT,
-            FileConstants.Pagination.MAX_LIMIT
-        )
-        
         // 解析游标
-        var lastId: Long? = null
-        var lastSortValue: String? = null
-        
-        if (request.cursor != null) {
-            val cursorParams = CursorUtil.decodeCursor(request.cursor)
-            if (cursorParams != null) {
-                // 验证游标参数是否匹配当前请求
-                if (!CursorUtil.validateCursorParams(
-                        cursorParams,
-                        request.orderBy,
-                        request.order,
-                        request.keyword,
-                        request.type
-                    )
-                ) {
-                    throw BusinessException(410, "游标已失效，请重新请求")
+        val cursor = request.cursor?.let { 
+            CursorUtil.decodeCursor(it)?.also { params ->
+                if (!params.matches(request)) {
+                    throw CursorExpiredException("游标已失效，请重新请求")
                 }
-                lastId = cursorParams.lastId
-                lastSortValue = cursorParams.lastSortValue
             }
         }
         
-        // 查询文件夹和文件
-        val items = mutableListOf<BaseResource>()
-        val sortField = mapSortField(request.orderBy)
+        // 根据游标中的resourceType判断当前查询阶段
+        val phase = cursor?.resourceType ?: "folder"
         
-        when (request.type) {
-            "folder" -> {
-                // 仅查询文件夹
-                val folders = folderMapper.selectFoldersWithCursor(
-                    userId = userId,
-                    parentId = folderId,
-                    keyword = request.keyword,
-                    sortField = sortField,
-                    sortOrder = request.order,
-                    lastId = lastId,
-                    lastSortValue = lastSortValue,
-                    limit = limit + 1 // 多查一个用于判断是否还有更多
-                )
-                
-                // 填充统计信息
-                folders.forEach { folder ->
-                    folder.fileCount = folderMapper.countFilesByFolderId(folder.id!!)
-                    folder.subFolderCount = folderMapper.countSubFoldersByFolderId(folder.id!!)
-                }
-                
-                items.addAll(folders.take(limit).map { FolderResource.fromEntity(it, userId) })
-                
-                // 判断是否还有更多
-                val hasMore = folders.size > limit
-                val nextCursor = if (hasMore && items.isNotEmpty()) {
-                    val lastItem = folders[limit - 1]
-                    encodeCursor(lastItem.id!!, getSortValue(lastItem, request.orderBy), request)
-                } else {
-                    null
-                }
-                
-                return PaginatedResponse.of(
-                    items = items,
-                    limit = limit,
-                    nextCursor = nextCursor,
-                    hasMore = hasMore
-                )
-            }
-            "file" -> {
-                // 仅查询文件
-                val files = fileMapper.selectFilesWithCursor(
-                    userId = userId,
-                    folderId = folderId,
-                    keyword = request.keyword,
-                    sortField = mapFileSortField(request.orderBy),
-                    sortOrder = request.order,
-                    lastId = lastId,
-                    lastSortValue = lastSortValue,
-                    limit = limit + 1
-                )
-                
-                items.addAll(files.take(limit).map { FileResource.fromEntity(it) })
-                
-                val hasMore = files.size > limit
-                val nextCursor = if (hasMore && items.isNotEmpty()) {
-                    val lastItem = files[limit - 1]
-                    encodeCursor(lastItem.id!!, getFileSortValue(lastItem, request.orderBy), request)
-                } else {
-                    null
-                }
-                
-                return PaginatedResponse.of(
-                    items = items,
-                    limit = limit,
-                    nextCursor = nextCursor,
-                    hasMore = hasMore
-                )
-            }
-            else -> {
-                // 混合查询（文件夹优先）
-                return getMixedChildren(folderId, userId, request, lastId, lastSortValue, limit)
-            }
+        return if (phase == "folder") {
+            queryFolderPhase(folderId, userId, request, cursor)
+        } else {
+            queryFilePhase(folderId, userId, request, cursor)
         }
     }
     
@@ -213,59 +122,37 @@ class FolderExplorerService(
             FileConstants.Pagination.MAX_LIMIT
         )
         
-        // 解析游标
-        var lastId: Long? = null
-        var lastSortValue: String? = null
-        
-        if (cursor != null) {
-            val cursorParams = CursorUtil.decodeCursor(cursor)
-            if (cursorParams != null) {
-                lastId = cursorParams.lastId
-                lastSortValue = cursorParams.lastSortValue
-            }
+        val request = object : CursorPageRequest {
+            override val cursor = cursor
+            override val limit = validLimit
+            override val sortField = "name"
+            override val sortOrder = "asc"
+            override val keyword: String? = null
+            override val type: String? = null
         }
         
-        // 查询子文件夹（按名称排序）
-        val folders = folderMapper.selectFoldersWithCursor(
-            userId = userId,
-            parentId = parentId,
-            keyword = null,
-            sortField = "name",
-            sortOrder = "asc",
-            lastId = lastId,
-            lastSortValue = lastSortValue,
-            limit = validLimit + 1
-        )
-        
-        // 填充统计信息
-        folders.forEach { folder ->
-            folder.fileCount = folderMapper.countFilesByFolderId(folder.id!!)
-            folder.subFolderCount = folderMapper.countSubFoldersByFolderId(folder.id!!)
-        }
-        
-        val items = folders.take(validLimit).map { FolderResource.fromEntity(it, userId) }
-        val hasMore = folders.size > validLimit
-        
-        val nextCursor = if (hasMore && items.isNotEmpty()) {
-            val lastItem = folders[validLimit - 1]
-            CursorUtil.encodeCursor(
-                CursorParams(
-                    lastId = lastItem.id!!,
-                    lastSortValue = lastItem.name,
+        return paginate(
+            request = request,
+            query = { params ->
+                folderMapper.selectFoldersWithCursor(
+                    userId = userId,
+                    parentId = parentId,
+                    keyword = null,
                     sortField = "name",
-                    sortOrder = "asc"
-                )
-            )
-        } else {
-            null
-        }
-        
-        return PaginatedResponse.of(
-            items = items,
-            limit = validLimit,
-            nextCursor = nextCursor,
-            hasMore = hasMore,
-            total = if (!hasMore) items.size.toLong() else null
+                    sortOrder = "asc",
+                    lastId = params.lastId,
+                    lastSortValue = params.lastSortValue,
+                    limit = params.limit
+                ).also { folders ->
+                    // 填充统计信息
+                    folders.forEach { folder ->
+                        folder.fileCount = folderMapper.countFilesByFolderId(folder.id!!)
+                        folder.subFolderCount = folderMapper.countSubFoldersByFolderId(folder.id!!)
+                    }
+                }
+            },
+            mapper = { FolderResource.fromEntity(it, userId) },
+            sortValueExtractor = { it.name }
         )
     }
     
@@ -276,123 +163,236 @@ class FolderExplorerService(
         folderId: Long?,
         userId: Long,
         request: FolderChildrenRequest
-    ): PaginatedResponse<BaseResource> {
+    ): FolderChildrenResponse {
         logger.info("搜索目录: folderId={}, userId={}, keyword={}", folderId, userId, request.keyword)
         
         if (request.keyword.isNullOrBlank()) {
             throw BusinessException(400, "搜索关键词不能为空")
         }
         
-        // 搜索逻辑与 getFolderChildren 类似，但可以扩展更复杂的搜索条件
+        // 搜索逻辑与 getFolderChildren 相同
         return getFolderChildren(folderId, userId, request)
     }
     
     /**
-     * 混合查询文件夹和文件（文件夹优先）
+     * 查询文件夹阶段
      */
-    private fun getMixedChildren(
+    private fun queryFolderPhase(
         folderId: Long?,
         userId: Long,
         request: FolderChildrenRequest,
-        lastId: Long?,
-        lastSortValue: String?,
-        limit: Int
-    ): PaginatedResponse<BaseResource> {
-        val items = mutableListOf<BaseResource>()
+        cursor: CursorParams?
+    ): FolderChildrenResponse {
+        val limit = request.limit
         val sortField = mapSortField(request.orderBy)
         
-        // 先查询文件夹
+        // 查询文件夹（多查一个用于判断hasMore）
         val folders = folderMapper.selectFoldersWithCursor(
             userId = userId,
             parentId = folderId,
             keyword = request.keyword,
             sortField = sortField,
             sortOrder = request.order,
-            lastId = lastId,
-            lastSortValue = lastSortValue,
+            lastId = cursor?.lastId,
+            lastSortValue = cursor?.lastSortValue,
             limit = limit + 1
         )
         
+        val hasMoreFolders = folders.size > limit
+        val folderItems = folders.take(limit)
+        
         // 填充文件夹统计信息
-        folders.forEach { folder ->
+        folderItems.forEach { folder ->
             folder.fileCount = folderMapper.countFilesByFolderId(folder.id!!)
             folder.subFolderCount = folderMapper.countSubFoldersByFolderId(folder.id!!)
         }
         
-        items.addAll(folders.take(limit).map { FolderResource.fromEntity(it, userId) })
+        val folderResources = folderItems.map { FolderResource.fromEntity(it, userId) }
         
-        // 如果文件夹不足 limit，再查询文件
-        if (items.size < limit) {
-            val remainingLimit = limit - items.size
-            val files = fileMapper.selectFilesWithCursor(
-                userId = userId,
-                folderId = folderId,
-                keyword = request.keyword,
-                sortField = mapFileSortField(request.orderBy),
-                sortOrder = request.order,
-                lastId = null,
-                lastSortValue = null,
-                limit = remainingLimit + 1
+        if (hasMoreFolders) {
+            // 还有更多文件夹，继续文件夹阶段
+            val lastFolder = folderItems.last()
+            val nextCursor = CursorUtil.encodeCursor(
+                CursorParams(
+                    lastId = lastFolder.id!!,
+                    lastSortValue = getSortValue(lastFolder, request.orderBy),
+                    sortField = request.sortField,
+                    sortOrder = request.sortOrder,
+                    keyword = request.keyword,
+                    type = request.type,
+                    resourceType = "folder"
+                )
             )
             
-            items.addAll(files.take(remainingLimit).map { FileResource.fromEntity(it) })
+            return FolderChildrenResponse(
+                folders = folderResources,
+                files = emptyList(),
+                pagination = ChildrenPaginationInfo(
+                    limit = limit,
+                    nextCursor = nextCursor,
+                    hasMore = true,
+                    stats = buildStats(folderId, userId)
+                )
+            )
+        } else {
+            // 文件夹查完了，开始查文件
+            val remainingLimit = limit - folderResources.size
+            
+            val files = if (remainingLimit > 0) {
+                fileMapper.selectFilesWithCursor(
+                    userId = userId,
+                    folderId = folderId,
+                    keyword = request.keyword,
+                    sortField = mapFileSortField(request.orderBy),
+                    sortOrder = request.order,
+                    lastId = null,
+                    lastSortValue = null,
+                    limit = remainingLimit + 1
+                )
+            } else {
+                emptyList()
+            }
             
             val hasMoreFiles = files.size > remainingLimit
-            val hasMore = folders.size > limit || hasMoreFiles
+            val fileItems = files.take(remainingLimit)
+            val fileResources = fileItems.map { FileResource.fromEntity(it) }
             
-            val nextCursor = if (hasMore && items.isNotEmpty()) {
-                val lastItem = if (hasMoreFiles) {
-                    val lastFile = files[remainingLimit - 1]
-                    encodeCursor(lastFile.id!!, getFileSortValue(lastFile, request.orderBy), request)
+            val nextCursor = if (hasMoreFiles) {
+                val lastFile = fileItems.last()
+                CursorUtil.encodeCursor(
+                    CursorParams(
+                        lastId = lastFile.id!!,
+                        lastSortValue = getFileSortValue(lastFile, request.orderBy),
+                        sortField = request.sortField,
+                        sortOrder = request.sortOrder,
+                        keyword = request.keyword,
+                        type = request.type,
+                        resourceType = "file"
+                    )
+                )
+            } else if (remainingLimit == 0) {
+                // 文件夹刚好填满limit，但需要查询是否有文件
+                val hasFiles = fileMapper.selectFilesWithCursor(
+                    userId = userId,
+                    folderId = folderId,
+                    keyword = request.keyword,
+                    sortField = mapFileSortField(request.orderBy),
+                    sortOrder = request.order,
+                    lastId = null,
+                    lastSortValue = null,
+                    limit = 1
+                ).isNotEmpty()
+                
+                if (hasFiles) {
+                    CursorUtil.encodeCursor(
+                        CursorParams(
+                            lastId = 0,
+                            lastSortValue = "",
+                            sortField = request.sortField,
+                            sortOrder = request.sortOrder,
+                            keyword = request.keyword,
+                            type = request.type,
+                            resourceType = "file"
+                        )
+                    )
                 } else {
-                    val lastFolder = folders.last()
-                    encodeCursor(lastFolder.id!!, getSortValue(lastFolder, request.orderBy), request)
+                    null
                 }
-                lastItem
             } else {
                 null
             }
             
-            return PaginatedResponse.of(
-                items = items,
-                limit = limit,
-                nextCursor = nextCursor,
-                hasMore = hasMore
+            return FolderChildrenResponse(
+                folders = folderResources,
+                files = fileResources,
+                pagination = ChildrenPaginationInfo(
+                    limit = limit,
+                    nextCursor = nextCursor,
+                    hasMore = hasMoreFiles || (remainingLimit == 0 && nextCursor != null),
+                    stats = buildStats(folderId, userId)
+                )
             )
         }
+    }
+    
+    /**
+     * 查询文件阶段
+     */
+    private fun queryFilePhase(
+        folderId: Long?,
+        userId: Long,
+        request: FolderChildrenRequest,
+        cursor: CursorParams?
+    ): FolderChildrenResponse {
+        val limit = request.limit
         
-        // 只有文件夹
-        val hasMore = folders.size > limit
+        // 纯文件查询
+        val files = fileMapper.selectFilesWithCursor(
+            userId = userId,
+            folderId = folderId,
+            keyword = request.keyword,
+            sortField = mapFileSortField(request.orderBy),
+            sortOrder = request.order,
+            lastId = cursor?.lastId,
+            lastSortValue = cursor?.lastSortValue,
+            limit = limit + 1
+        )
+        
+        val hasMore = files.size > limit
+        val fileItems = files.take(limit)
+        val fileResources = fileItems.map { FileResource.fromEntity(it) }
+        
         val nextCursor = if (hasMore) {
-            val lastFolder = folders[limit - 1]
-            encodeCursor(lastFolder.id!!, getSortValue(lastFolder, request.orderBy), request)
+            val lastFile = fileItems.last()
+            CursorUtil.encodeCursor(
+                CursorParams(
+                    lastId = lastFile.id!!,
+                    lastSortValue = getFileSortValue(lastFile, request.orderBy),
+                    sortField = request.sortField,
+                    sortOrder = request.sortOrder,
+                    keyword = request.keyword,
+                    type = request.type,
+                    resourceType = "file"
+                )
+            )
         } else {
             null
         }
         
-        return PaginatedResponse.of(
-            items = items,
-            limit = limit,
-            nextCursor = nextCursor,
-            hasMore = hasMore
+        return FolderChildrenResponse(
+            folders = emptyList(),
+            files = fileResources,
+            pagination = ChildrenPaginationInfo(
+                limit = limit,
+                nextCursor = nextCursor,
+                hasMore = hasMore,
+                stats = buildStats(folderId, userId)
+            )
         )
     }
     
     /**
-     * 编码游标
+     * 构建统计信息
      */
-    private fun encodeCursor(lastId: Long, lastSortValue: String, request: FolderChildrenRequest): String {
-        return CursorUtil.encodeCursor(
-            CursorParams(
-                lastId = lastId,
-                lastSortValue = lastSortValue,
-                sortField = request.orderBy,
-                sortOrder = request.order,
-                keyword = request.keyword,
-                type = request.type
-            )
+    private fun buildStats(folderId: Long?, userId: Long): ChildrenStats {
+        val totalFolders = if (folderId == null) {
+            folderMapper.countRootFolders(userId).toLong()
+        } else {
+            folderMapper.countSubFoldersByFolderId(folderId).toLong()
+        }
+        
+        val totalFiles = if (folderId == null) {
+            folderMapper.countRootFiles(userId).toLong()
+        } else {
+            folderMapper.countFilesByFolderId(folderId).toLong()
+        }
+        
+        return ChildrenStats(
+            totalFolders = totalFolders,
+            totalFiles = totalFiles
         )
     }
+    
     
     /**
      * 获取文件夹的排序字段值

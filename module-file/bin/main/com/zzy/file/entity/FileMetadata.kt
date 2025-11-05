@@ -1,6 +1,7 @@
 package com.zzy.file.entity
 
 import com.baomidou.mybatisplus.annotation.*
+import com.zzy.common.pagination.HasId
 import java.time.LocalDateTime
 
 /**
@@ -12,7 +13,7 @@ import java.time.LocalDateTime
 data class FileMetadata(
     /** 文件ID */
     @TableId(type = IdType.AUTO)
-    var id: Long? = null,
+    override var id: Long? = null,
     
     /** 上传用户ID */
     var userId: Long,
@@ -64,4 +65,4 @@ data class FileMetadata(
     
     /** 更新时间 */
     var updateTime: LocalDateTime? = null
-)
+) : HasId

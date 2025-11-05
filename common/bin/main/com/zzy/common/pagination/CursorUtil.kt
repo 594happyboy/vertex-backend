@@ -40,21 +40,5 @@ object CursorUtil {
             null
         }
     }
-    
-    /**
-     * 验证游标参数是否与当前请求匹配
-     */
-    fun validateCursorParams(
-        cursorParams: CursorParams,
-        sortField: String,
-        sortOrder: String,
-        keyword: String? = null,
-        type: String? = null
-    ): Boolean {
-        return cursorParams.sortField == sortField &&
-               cursorParams.sortOrder == sortOrder &&
-               cursorParams.keyword == keyword &&
-               cursorParams.type == type
-    }
 }
 

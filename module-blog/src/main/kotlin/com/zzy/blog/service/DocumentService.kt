@@ -11,9 +11,7 @@ import com.zzy.blog.mapper.DocumentMapper
 import com.zzy.file.service.FileService
 import com.zzy.file.service.FileReferenceService
 import com.zzy.file.entity.ReferenceType
-import com.zzy.common.pagination.CursorParams
-import com.zzy.common.pagination.CursorUtil
-import com.zzy.common.pagination.PaginatedResponse
+import com.zzy.common.pagination.*
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -49,157 +47,115 @@ class DocumentService(
         val authUser = AuthContextHolder.getAuthUser()
             ?: throw ForbiddenException("未登录")
         
-        // 验证限制
-        val limit = request.limit.coerceIn(1, MAX_LIMIT)
-        
-        // 解析游标
-        var lastId: Long? = null
-        var lastSortValue: String? = null
-        
-        if (request.cursor != null) {
-            val cursorParams = CursorUtil.decodeCursor(request.cursor)
-            if (cursorParams != null) {
-                // 验证游标参数是否匹配当前请求
-                if (!CursorUtil.validateCursorParams(
-                        cursorParams,
-                        request.sortBy,
-                        request.order,
-                        request.q
-                    )
-                ) {
-                    throw IllegalArgumentException("游标已失效，请重新请求")
-                }
-                lastId = cursorParams.lastId
-                lastSortValue = cursorParams.lastSortValue
-            }
+        val validLimit = request.limit.coerceIn(1, MAX_LIMIT)
+        val validRequest = object : CursorPageRequest {
+            override val cursor = request.cursor
+            override val limit = validLimit
+            override val sortField = request.sortBy
+            override val sortOrder = request.order
+            override val keyword = request.q
+            override val type: String? = null
         }
         
-        // 根据排序字段和方向调用不同的查询方法
-        val documents = when (request.sortBy) {
-            "title" -> {
-                if (request.order == "asc") {
-                    documentMapper.selectDocumentsByTitleAsc(
-                        userId = authUser.userId,
-                        groupId = request.groupId,
-                        keyword = request.q,
-                        lastId = lastId,
-                        lastSortValue = lastSortValue,
-                        limit = limit + 1
-                    )
-                } else {
-                    documentMapper.selectDocumentsByTitleDesc(
-                        userId = authUser.userId,
-                        groupId = request.groupId,
-                        keyword = request.q,
-                        lastId = lastId,
-                        lastSortValue = lastSortValue,
-                        limit = limit + 1
-                    )
+        return paginate(
+            request = validRequest,
+            query = { params ->
+                // 根据排序字段和方向调用不同的查询方法
+                when (request.sortBy) {
+                    "title" -> {
+                        if (request.order == "asc") {
+                            documentMapper.selectDocumentsByTitleAsc(
+                                userId = authUser.userId,
+                                groupId = request.groupId,
+                                keyword = request.q,
+                                lastId = params.lastId,
+                                lastSortValue = params.lastSortValue,
+                                limit = params.limit
+                            )
+                        } else {
+                            documentMapper.selectDocumentsByTitleDesc(
+                                userId = authUser.userId,
+                                groupId = request.groupId,
+                                keyword = request.q,
+                                lastId = params.lastId,
+                                lastSortValue = params.lastSortValue,
+                                limit = params.limit
+                            )
+                        }
+                    }
+                    "createdAt" -> {
+                        if (request.order == "asc") {
+                            documentMapper.selectDocumentsByCreatedAtAsc(
+                                userId = authUser.userId,
+                                groupId = request.groupId,
+                                keyword = request.q,
+                                lastId = params.lastId,
+                                lastSortValue = params.lastSortValue,
+                                limit = params.limit
+                            )
+                        } else {
+                            documentMapper.selectDocumentsByCreatedAtDesc(
+                                userId = authUser.userId,
+                                groupId = request.groupId,
+                                keyword = request.q,
+                                lastId = params.lastId,
+                                lastSortValue = params.lastSortValue,
+                                limit = params.limit
+                            )
+                        }
+                    }
+                    "updatedAt" -> {
+                        if (request.order == "asc") {
+                            documentMapper.selectDocumentsByUpdatedAtAsc(
+                                userId = authUser.userId,
+                                groupId = request.groupId,
+                                keyword = request.q,
+                                lastId = params.lastId,
+                                lastSortValue = params.lastSortValue,
+                                limit = params.limit
+                            )
+                        } else {
+                            documentMapper.selectDocumentsByUpdatedAtDesc(
+                                userId = authUser.userId,
+                                groupId = request.groupId,
+                                keyword = request.q,
+                                lastId = params.lastId,
+                                lastSortValue = params.lastSortValue,
+                                limit = params.limit
+                            )
+                        }
+                    }
+                    else -> {
+                        // 默认排序
+                        documentMapper.selectDocumentsDefault(
+                            userId = authUser.userId,
+                            groupId = request.groupId,
+                            keyword = request.q,
+                            lastId = params.lastId,
+                            limit = params.limit
+                        )
+                    }
                 }
-            }
-            "createdAt" -> {
-                if (request.order == "asc") {
-                    documentMapper.selectDocumentsByCreatedAtAsc(
-                        userId = authUser.userId,
-                        groupId = request.groupId,
-                        keyword = request.q,
-                        lastId = lastId,
-                        lastSortValue = lastSortValue,
-                        limit = limit + 1
-                    )
-                } else {
-                    documentMapper.selectDocumentsByCreatedAtDesc(
-                        userId = authUser.userId,
-                        groupId = request.groupId,
-                        keyword = request.q,
-                        lastId = lastId,
-                        lastSortValue = lastSortValue,
-                        limit = limit + 1
-                    )
-                }
-            }
-            "updatedAt" -> {
-                if (request.order == "asc") {
-                    documentMapper.selectDocumentsByUpdatedAtAsc(
-                        userId = authUser.userId,
-                        groupId = request.groupId,
-                        keyword = request.q,
-                        lastId = lastId,
-                        lastSortValue = lastSortValue,
-                        limit = limit + 1
-                    )
-                } else {
-                    documentMapper.selectDocumentsByUpdatedAtDesc(
-                        userId = authUser.userId,
-                        groupId = request.groupId,
-                        keyword = request.q,
-                        lastId = lastId,
-                        lastSortValue = lastSortValue,
-                        limit = limit + 1
-                    )
-                }
-            }
-            else -> {
-                // 默认排序
-                documentMapper.selectDocumentsDefault(
-                    userId = authUser.userId,
-                    groupId = request.groupId,
-                    keyword = request.q,
-                    lastId = lastId,
-                    limit = limit + 1
+            },
+            mapper = { doc ->
+                DocumentItem(
+                    id = doc.id!!,
+                    title = doc.title,
+                    type = doc.type,
+                    groupId = doc.groupId,
+                    sortIndex = doc.sortIndex,
+                    createdAt = doc.createdAt,
+                    updatedAt = doc.updatedAt
                 )
+            },
+            sortValueExtractor = { doc ->
+                when (request.sortBy) {
+                    "title" -> doc.title
+                    "createdAt" -> doc.createdAt?.toString() ?: ""
+                    "updatedAt" -> doc.updatedAt?.toString() ?: ""
+                    else -> doc.sortIndex.toString()
+                }
             }
-        }
-        
-        // 转换为DTO
-        val items = documents.take(limit).map { doc ->
-            DocumentItem(
-                id = doc.id!!,
-                title = doc.title,
-                type = doc.type,
-                groupId = doc.groupId,
-                sortIndex = doc.sortIndex,
-                createdAt = doc.createdAt,
-                updatedAt = doc.updatedAt
-            )
-        }
-        
-        // 判断是否还有更多
-        val hasMore = documents.size > limit
-        val nextCursor = if (hasMore && items.isNotEmpty()) {
-            val lastItem = documents[limit - 1]
-            encodeCursor(lastItem, request)
-        } else {
-            null
-        }
-        
-        return PaginatedResponse.of(
-            items = items,
-            limit = limit,
-            nextCursor = nextCursor,
-            hasMore = hasMore
-        )
-    }
-    
-    /**
-     * 编码游标
-     */
-    private fun encodeCursor(document: Document, request: DocumentQueryRequest): String {
-        val sortValue = when (request.sortBy) {
-            "title" -> document.title
-            "createdAt" -> document.createdAt?.toString() ?: ""
-            "updatedAt" -> document.updatedAt?.toString() ?: ""
-            else -> document.sortIndex.toString()
-        }
-        
-        return CursorUtil.encodeCursor(
-            CursorParams(
-                lastId = document.id!!,
-                lastSortValue = sortValue,
-                sortField = request.sortBy,
-                sortOrder = request.order,
-                keyword = request.q
-            )
         )
     }
     

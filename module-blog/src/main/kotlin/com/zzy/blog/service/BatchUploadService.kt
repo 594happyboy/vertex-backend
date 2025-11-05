@@ -33,7 +33,8 @@ class BatchUploadService(
     private val groupMapper: GroupMapper,
     private val documentMapper: DocumentMapper,
     private val directoryTreeService: DirectoryTreeService,
-    private val fileService: com.zzy.file.service.FileService
+    private val fileService: com.zzy.file.service.FileService,
+    private val systemFolderManager: com.zzy.file.service.SystemFolderManager
 ) {
     
     private val logger = LoggerFactory.getLogger(BatchUploadService::class.java)
@@ -307,15 +308,23 @@ class BatchUploadService(
                 return false
             }
             
-            // 1. 上传文件到文件管理系统
+            // 1. 获取知识库文件夹ID
+            val knowledgeBaseFolderId = systemFolderManager.getOrCreateSystemFolder(
+                userId = userId,
+                type = com.zzy.file.service.SystemFolderManager.SystemFolderType.KNOWLEDGE_BASE
+            )
+            
+            // 2. 上传文件到文件管理系统的知识库文件夹
             val multipartFile = convertToMultipartFile(file)
             val fileResponse = fileService.uploadFile(
                 userId = userId,
                 file = multipartFile,
-                request = com.zzy.file.dto.FileUploadRequest()
+                request = com.zzy.file.dto.FileUploadRequest(
+                    folderId = knowledgeBaseFolderId
+                )
             )
             
-            // 2. 创建文档记录
+            // 3. 创建文档记录
             val document = Document(
                 userId = userId,
                 groupId = groupId,

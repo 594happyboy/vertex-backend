@@ -30,6 +30,10 @@ data class CursorParams(
     
     /** 资源类型过滤 */
     @JsonProperty("type")
-    val type: String? = null
+    val type: String? = null,
+    
+    /** 资源类型标识（用于混合查询时区分文件夹/文件阶段） */
+    @JsonProperty("resourceType")
+    val resourceType: String? = null  // "folder" 或 "file"
 )
 

@@ -2,7 +2,7 @@ package com.zzy.file.controller
 
 import com.zzy.common.dto.ApiResponse
 import com.zzy.file.dto.*
-import com.zzy.file.dto.pagination.PaginatedResponse
+import com.zzy.common.pagination.PaginatedResponse
 import com.zzy.file.dto.resource.BaseResource
 import com.zzy.file.dto.resource.FolderResource
 import com.zzy.file.service.FolderService
@@ -44,7 +44,7 @@ class FolderController(
         return ApiResponse.success(root, "查询成功")
     }
     
-    @Operation(summary = "获取目录内容列表", description = "获取指定目录下的文件和子文件夹混合列表，支持游标分页、排序、筛选和搜索")
+    @Operation(summary = "获取目录内容列表", description = "获取指定目录下的文件和子文件夹，文件夹和文件分别返回，文件夹始终优先展示，支持游标分页、排序和搜索")
     @GetMapping("/{id}/children")
     fun getFolderChildren(
         @Parameter(description = "文件夹ID，root表示根目录", required = true) @PathVariable id: String,
@@ -52,14 +52,13 @@ class FolderController(
         @Parameter(description = "分页游标，首次请求不传") @RequestParam(required = false) cursor: String?,
         @Parameter(description = "每页数量，范围1-200") @RequestParam(defaultValue = "50") limit: Int,
         @Parameter(description = "搜索关键词") @RequestParam(required = false) keyword: String?,
-        @Parameter(description = "排序字段：name, size, updatedAt, type") @RequestParam(defaultValue = "name") orderBy: String,
-        @Parameter(description = "排序方向：asc, desc") @RequestParam(defaultValue = "asc") order: String,
-        @Parameter(description = "类型筛选：all, folder, file") @RequestParam(defaultValue = "all") type: String
-    ): ApiResponse<PaginatedResponse<BaseResource>> {
+        @Parameter(description = "排序字段：name, size, updatedAt") @RequestParam(defaultValue = "name") orderBy: String,
+        @Parameter(description = "排序方向：asc, desc") @RequestParam(defaultValue = "asc") order: String
+    ): ApiResponse<FolderChildrenResponse> {
         logger.debug("获取目录子项: folderId={}, userId={}", id, userId)
         
         val folderId = parseFolderId(id)
-        val request = buildFolderChildrenRequest(cursor, limit, keyword, orderBy, order, type)
+        val request = buildFolderChildrenRequest(cursor, limit, keyword, orderBy, order)
         
         return ApiResponse.success(
             folderExplorerService.getFolderChildren(folderId, userId, request),
@@ -80,8 +79,7 @@ class FolderController(
         limit: Int,
         keyword: String?,
         orderBy: String,
-        order: String,
-        type: String
+        order: String
     ): FolderChildrenRequest {
         return FolderChildrenRequest(
             cursor = cursor,
@@ -92,7 +90,7 @@ class FolderController(
             keyword = keyword,
             orderBy = orderBy,
             order = order,
-            type = type
+            type = "all"  // 固定为all，文件夹始终优先
         )
     }
     
@@ -112,7 +110,7 @@ class FolderController(
         )
     }
     
-    @Operation(summary = "搜索目录内容", description = "在指定目录范围内搜索文件和文件夹，支持游标分页和类型筛选")
+    @Operation(summary = "搜索目录内容", description = "在指定目录范围内搜索文件和文件夹，文件夹和文件分别返回，文件夹始终优先展示")
     @GetMapping("/{id}/search")
     fun searchInFolder(
         @Parameter(description = "搜索范围的文件夹ID，root表示全局搜索", required = true) @PathVariable id: String,
@@ -120,14 +118,12 @@ class FolderController(
         @Parameter(description = "搜索关键词", required = true) @RequestParam keyword: String,
         @Parameter(description = "分页游标，首次请求不传") @RequestParam(required = false) cursor: String?,
         @Parameter(description = "每页数量") @RequestParam(defaultValue = "50") limit: Int,
-        @Parameter(description = "类型筛选：all, folder, file") @RequestParam(defaultValue = "all") type: String,
         @Parameter(description = "排序字段：name, size, updatedAt") @RequestParam(defaultValue = "name") orderBy: String,
-        @Parameter(description = "排序方向：asc, desc") @RequestParam(defaultValue = "asc") order: String,
-        @Parameter(description = "是否递归搜索子目录") @RequestParam(defaultValue = "true") recursive: Boolean
-    ): ApiResponse<PaginatedResponse<BaseResource>> {
-        logger.info("搜索目录: folderId={}, userId={}, keyword={}, recursive={}", id, userId, keyword, recursive)
+        @Parameter(description = "排序方向：asc, desc") @RequestParam(defaultValue = "asc") order: String
+    ): ApiResponse<FolderChildrenResponse> {
+        logger.info("搜索目录: folderId={}, userId={}, keyword={}", id, userId, keyword)
         
-        val request = buildFolderChildrenRequest(cursor, limit, keyword, orderBy, order, type)
+        val request = buildFolderChildrenRequest(cursor, limit, keyword, orderBy, order)
         
         return ApiResponse.success(
             folderExplorerService.searchInFolder(parseFolderId(id), userId, request),

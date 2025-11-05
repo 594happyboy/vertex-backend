@@ -1,9 +1,7 @@
 package com.zzy.file.service
 
 import com.zzy.common.exception.BusinessException
-import com.zzy.file.dto.pagination.CursorParams
-import com.zzy.file.dto.pagination.CursorUtil
-import com.zzy.file.dto.pagination.PaginatedResponse
+import com.zzy.common.pagination.*
 import com.zzy.file.dto.resource.FileResource
 import com.zzy.file.entity.FileMetadata
 import com.zzy.file.mapper.FileMapper
@@ -38,50 +36,27 @@ class TrashService(
     ): PaginatedResponse<FileResource> {
         logger.debug("获取回收站列表: userId={}, cursor={}, limit={}", userId, cursor, limit)
         
-        // 解析游标
-        var lastId: Long? = null
-        var lastDeletedAt: String? = null
-        
-        if (cursor != null) {
-            val cursorParams = CursorUtil.decodeCursor(cursor)
-            if (cursorParams != null) {
-                lastId = cursorParams.lastId
-                lastDeletedAt = cursorParams.lastSortValue
-            }
+        val request = object : CursorPageRequest {
+            override val cursor = cursor
+            override val limit = limit
+            override val sortField = "deleted_at"
+            override val sortOrder = "desc"
+            override val keyword: String? = null
+            override val type: String? = null
         }
         
-        // 查询回收站文件（按删除时间倒序）
-        val files = fileMapper.selectRecycleBinWithCursor(
-            userId = userId,
-            lastId = lastId,
-            lastDeletedAt = lastDeletedAt,
-            limit = limit + 1
-        )
-        
-        // 判断是否还有更多
-        val hasMore = files.size > limit
-        val items = files.take(limit).map { FileResource.fromEntity(it) }
-        
-        // 生成下一页游标
-        val nextCursor = if (hasMore && items.isNotEmpty()) {
-            val lastItem = files[limit - 1]
-            CursorUtil.encodeCursor(
-                CursorParams(
-                    lastId = lastItem.id!!,
-                    lastSortValue = lastItem.deletedAt?.toString() ?: "",
-                    sortField = "deleted_at",
-                    sortOrder = "desc"
+        return paginate(
+            request = request,
+            query = { params ->
+                fileMapper.selectRecycleBinWithCursor(
+                    userId = userId,
+                    lastId = params.lastId,
+                    lastDeletedAt = params.lastSortValue,
+                    limit = params.limit
                 )
-            )
-        } else {
-            null
-        }
-        
-        return PaginatedResponse.of(
-            items = items,
-            limit = limit,
-            nextCursor = nextCursor,
-            hasMore = hasMore
+            },
+            mapper = { FileResource.fromEntity(it) },
+            sortValueExtractor = { it.deletedAt?.toString() ?: "" }
         )
     }
     
