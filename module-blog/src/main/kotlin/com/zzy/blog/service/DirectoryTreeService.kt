@@ -3,12 +3,14 @@ package com.zzy.blog.service
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
-import com.zzy.blog.context.AuthContextHolder
+import com.zzy.blog.constants.CacheConstants
+import com.zzy.blog.constants.RedisKeyConstants
 import com.zzy.blog.dto.DirectoryTreeNode
 import com.zzy.blog.dto.DirectoryTreeResponse
 import com.zzy.blog.entity.Document
 import com.zzy.blog.entity.Group
-import com.zzy.blog.exception.ForbiddenException
+import com.zzy.common.context.AuthContextHolder
+import com.zzy.common.exception.ForbiddenException
 import com.zzy.blog.mapper.DocumentMapper
 import com.zzy.blog.mapper.GroupMapper
 import org.slf4j.LoggerFactory
@@ -31,11 +33,6 @@ class DirectoryTreeService(
 ) {
 
     private val logger = LoggerFactory.getLogger(DirectoryTreeService::class.java)
-
-    companion object {
-        private const val CACHE_KEY_PREFIX = "directory_tree:"
-        private const val CACHE_TTL_MINUTES = 30L
-    }
 
     /**
      * 获取完整的目录树
@@ -165,7 +162,7 @@ class DirectoryTreeService(
      * 构建缓存键
      */
     private fun buildCacheKey(userId: Long): String {
-        return "$CACHE_KEY_PREFIX$userId"
+        return "${RedisKeyConstants.Cache.DIRECTORY_TREE_PREFIX}$userId"
     }
 
     /**
@@ -193,7 +190,7 @@ class DirectoryTreeService(
     private fun saveToCache(key: String, tree: List<DirectoryTreeNode>) {
         try {
             val json = objectMapper.writeValueAsString(tree)
-            stringRedisTemplate.opsForValue().set(key, json, CACHE_TTL_MINUTES, TimeUnit.MINUTES)
+            stringRedisTemplate.opsForValue().set(key, json, CacheConstants.DIRECTORY_TREE_TTL_MINUTES, TimeUnit.MINUTES)
             logger.debug("目录树已缓存: key={}", key)
         } catch (e: Exception) {
             logger.error("保存目录树到缓存失败: {}", e.message, e)

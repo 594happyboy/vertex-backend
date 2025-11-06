@@ -1,7 +1,7 @@
 package com.zzy.blog.controller
 
 import com.zzy.blog.dto.*
-import com.zzy.blog.exception.ResourceNotFoundException
+import com.zzy.common.exception.ResourceNotFoundException
 import com.zzy.blog.service.BatchUploadService
 import com.zzy.blog.service.DocumentService
 import com.zzy.common.dto.ApiResponse

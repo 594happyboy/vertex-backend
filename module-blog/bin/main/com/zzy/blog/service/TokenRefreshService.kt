@@ -2,9 +2,11 @@ package com.zzy.blog.service
 
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.zzy.blog.config.TokenConfig
+import com.zzy.blog.constants.CacheConstants
+import com.zzy.blog.constants.RedisKeyConstants
 import com.zzy.blog.mapper.UserMapper
-import com.zzy.blog.util.JwtUtil
+import com.zzy.common.config.TokenConfig
+import com.zzy.common.util.JwtUtil
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Service
@@ -32,13 +34,6 @@ class TokenRefreshService(
     
     private val logger = LoggerFactory.getLogger(TokenRefreshService::class.java)
     
-    companion object {
-        private const val LOCK_PREFIX = "token:refresh:lock:"
-        private const val CACHE_PREFIX = "token:refresh:cache:"
-        private const val WAIT_ATTEMPTS = 50
-        private const val WAIT_INTERVAL_MS = 100L
-    }
-    
     /** Token 刷新结果 */
     data class TokenPair(
         val accessToken: String,
@@ -52,8 +47,8 @@ class TokenRefreshService(
         ipAddress: String?,
         userAgent: String?
     ): TokenPair? {
-        val lockKey = "$LOCK_PREFIX$userId"
-        val cacheKey = "$CACHE_PREFIX$userId"
+        val lockKey = "${RedisKeyConstants.TokenRefresh.LOCK_PREFIX}$userId"
+        val cacheKey = "${RedisKeyConstants.TokenRefresh.CACHE_PREFIX}$userId"
         
         // 1. 检查缓存（可能已被其他请求刷新）
         readFromCache(cacheKey, oldRefreshToken)?.let {
@@ -174,9 +169,9 @@ class TokenRefreshService(
         cacheKey: String,
         fallbackRefreshToken: String
     ): TokenPair? {
-        repeat(WAIT_ATTEMPTS) { attempt ->
+        repeat(CacheConstants.TokenRefresh.WAIT_ATTEMPTS) { attempt ->
             try {
-                Thread.sleep(WAIT_INTERVAL_MS)
+                Thread.sleep(CacheConstants.TokenRefresh.WAIT_INTERVAL_MS)
                 
                 readFromCache(cacheKey, fallbackRefreshToken)?.let {
                     logger.info("✅ 等待后从缓存获取Token: userId={}, attempt={}", userId, attempt + 1)

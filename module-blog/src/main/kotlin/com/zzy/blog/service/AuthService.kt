@@ -3,10 +3,10 @@ package com.zzy.blog.service
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
 import com.zzy.blog.dto.*
 import com.zzy.blog.entity.User
-import com.zzy.blog.exception.PasswordIncorrectException
-import com.zzy.blog.exception.UserNotFoundException
 import com.zzy.blog.mapper.UserMapper
-import com.zzy.blog.util.JwtUtil
+import com.zzy.common.exception.PasswordIncorrectException
+import com.zzy.common.exception.UserNotFoundException
+import com.zzy.common.util.JwtUtil
 import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
 import org.springframework.security.crypto.bcrypt.BCrypt

@@ -1,10 +1,10 @@
 package com.zzy.blog.service
 
-import com.zzy.blog.context.AuthContextHolder
 import com.zzy.blog.dto.DocumentSortRequest
 import com.zzy.blog.dto.GroupSortRequest
-import com.zzy.blog.exception.ForbiddenException
-import com.zzy.blog.exception.ResourceNotFoundException
+import com.zzy.common.context.AuthContextHolder
+import com.zzy.common.exception.ForbiddenException
+import com.zzy.common.exception.ResourceNotFoundException
 import com.zzy.blog.mapper.DocumentMapper
 import com.zzy.blog.mapper.GroupMapper
 import org.slf4j.LoggerFactory

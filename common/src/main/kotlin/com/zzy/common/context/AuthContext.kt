@@ -1,9 +1,9 @@
-package com.zzy.blog.context
+package com.zzy.common.context
 
 /**
- * 鉴权上下文
+ * 鉴权用户信息
  * @author ZZY
- * @date 2025-10-18
+ * @date 2025-11-06
  */
 data class AuthUser(
     val userId: Long            // 当前登录用户ID
@@ -11,6 +11,10 @@ data class AuthUser(
 
 /**
  * 鉴权上下文持有者
+ * 基于 ThreadLocal 实现线程隔离的用户上下文管理
+ * 
+ * @author ZZY
+ * @date 2025-11-06
  */
 object AuthContextHolder {
     private val context = ThreadLocal<AuthUser>()
@@ -38,6 +42,7 @@ object AuthContextHolder {
     
     /**
      * 获取当前用户ID
+     * @throws IllegalStateException 如果用户未登录
      */
     fun getCurrentUserId(): Long {
         val authUser = getAuthUser() ?: throw IllegalStateException("未登录")

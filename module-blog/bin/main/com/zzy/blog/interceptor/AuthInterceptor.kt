@@ -1,10 +1,11 @@
 package com.zzy.blog.interceptor
 
-import com.zzy.blog.context.AuthContextHolder
-import com.zzy.blog.context.AuthUser
-import com.zzy.blog.exception.UnauthorizedException
 import com.zzy.blog.service.TokenRefreshService
-import com.zzy.blog.util.JwtUtil
+import com.zzy.common.constants.AuthConstants
+import com.zzy.common.context.AuthContextHolder
+import com.zzy.common.context.AuthUser
+import com.zzy.common.exception.UnauthorizedException
+import com.zzy.common.util.JwtUtil
 import jakarta.servlet.http.Cookie
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -50,11 +51,6 @@ class AuthInterceptor(
     
     private val logger = LoggerFactory.getLogger(AuthInterceptor::class.java)
     
-    companion object {
-        const val NEW_ACCESS_TOKEN_HEADER = "X-New-Access-Token"
-        const val REFRESH_TOKEN_COOKIE_NAME = "refreshToken"
-    }
-    
     override fun preHandle(
         request: HttpServletRequest,
         response: HttpServletResponse,
@@ -94,7 +90,7 @@ class AuthInterceptor(
                         accessToken = tokenPair.accessToken
                         
                         // 将新的 AccessToken 放入响应头
-                        response.setHeader(NEW_ACCESS_TOKEN_HEADER, tokenPair.accessToken)
+                        response.setHeader(AuthConstants.NEW_ACCESS_TOKEN_HEADER, tokenPair.accessToken)
                         
                         // 将新的 RefreshToken 放入Cookie（如果有轮转）
                         if (tokenPair.refreshToken.isNotEmpty()) {
@@ -163,7 +159,7 @@ class AuthInterceptor(
      */
     private fun extractRefreshTokenFromCookie(request: HttpServletRequest): String? {
         val cookies = request.cookies ?: return null
-        return cookies.firstOrNull { it.name == REFRESH_TOKEN_COOKIE_NAME }?.value
+        return cookies.firstOrNull { it.name == AuthConstants.REFRESH_TOKEN_COOKIE_NAME }?.value
     }
     
     /**
@@ -182,11 +178,11 @@ class AuthInterceptor(
      * 设置 RefreshToken 到 HttpOnly Cookie
      */
     private fun setRefreshTokenCookie(response: HttpServletResponse, refreshToken: String) {
-        val cookie = Cookie(REFRESH_TOKEN_COOKIE_NAME, refreshToken).apply {
+        val cookie = Cookie(AuthConstants.REFRESH_TOKEN_COOKIE_NAME, refreshToken).apply {
             isHttpOnly = true      // 防止JS访问（防XSS）
             secure = false         // 生产环境应设为true（仅HTTPS）
             path = "/"
-            maxAge = 7 * 24 * 60 * 60  // 7天
+            maxAge = AuthConstants.COOKIE_MAX_AGE
         }
         response.addCookie(cookie)
     }
@@ -205,6 +201,6 @@ class AuthInterceptor(
         if (!ip.isNullOrEmpty() && ip.contains(",")) {
             ip = ip.split(",")[0].trim()
         }
-        return ip ?: "unknown"
+        return ip ?: AuthConstants.UNKNOWN
     }
 }

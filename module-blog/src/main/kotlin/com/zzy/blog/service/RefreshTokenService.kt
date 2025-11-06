@@ -2,7 +2,9 @@ package com.zzy.blog.service
 
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.zzy.blog.config.TokenConfig
+import com.zzy.blog.constants.RedisKeyConstants
+import com.zzy.common.config.TokenConfig
+import com.zzy.common.constants.AuthConstants
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Service
@@ -29,12 +31,6 @@ class RefreshTokenService(
 ) {
     
     private val logger = LoggerFactory.getLogger(RefreshTokenService::class.java)
-    
-    companion object {
-        private const val REFRESH_TOKEN_PREFIX = "refresh_token:"
-        private const val USER_TOKENS_PREFIX = "user_tokens:"
-        private const val UNKNOWN = "unknown"
-    }
 
     /**
      * RefreshToken元信息
@@ -62,8 +58,8 @@ class RefreshTokenService(
         val refreshToken = UUID.randomUUID().toString().replace("-", "")
         val info = RefreshTokenInfo(
             userId = userId,
-            ipAddress = ipAddress ?: UNKNOWN,
-            userAgent = userAgent ?: UNKNOWN,
+            ipAddress = ipAddress ?: AuthConstants.UNKNOWN,
+            userAgent = userAgent ?: AuthConstants.UNKNOWN,
             createTime = System.currentTimeMillis()
         )
 
@@ -89,7 +85,7 @@ class RefreshTokenService(
         }
 
         // 检测 IP 变化（仅警告，不阻止）
-        if (currentIp != null && info.ipAddress != UNKNOWN && currentIp != info.ipAddress) {
+        if (currentIp != null && info.ipAddress != AuthConstants.UNKNOWN && currentIp != info.ipAddress) {
             logger.warn(
                 "检测到RefreshToken IP变化: userId={}, 原IP={}, 当前IP={}",
                 info.userId, info.ipAddress, currentIp
@@ -172,9 +168,9 @@ class RefreshTokenService(
         }
     }
     
-    private fun redisKey(token: String) = "$REFRESH_TOKEN_PREFIX$token"
+    private fun redisKey(token: String) = "${RedisKeyConstants.RefreshToken.TOKEN_PREFIX}$token"
 
-    private fun userTokensKey(userId: Long) = "$USER_TOKENS_PREFIX$userId"
+    private fun userTokensKey(userId: Long) = "${RedisKeyConstants.RefreshToken.USER_TOKENS_PREFIX}$userId"
 
     private fun previewToken(token: String) = token.take(8) + "..."
 

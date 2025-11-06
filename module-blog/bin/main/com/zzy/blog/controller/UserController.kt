@@ -1,8 +1,8 @@
 package com.zzy.blog.controller
 
-import com.zzy.blog.context.AuthContextHolder
 import com.zzy.blog.dto.UserInfo
-import com.zzy.blog.exception.UnauthorizedException
+import com.zzy.common.context.AuthContextHolder
+import com.zzy.common.exception.UnauthorizedException
 import com.zzy.blog.service.UserService
 import com.zzy.common.dto.ApiResponse
 import io.swagger.v3.oas.annotations.Operation

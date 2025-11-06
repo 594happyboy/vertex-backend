@@ -1,7 +1,7 @@
 package com.zzy.blog.service
 
 import com.zzy.blog.dto.UserInfo
-import com.zzy.blog.exception.UserNotFoundException
+import com.zzy.common.exception.UserNotFoundException
 import com.zzy.blog.mapper.UserMapper
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service

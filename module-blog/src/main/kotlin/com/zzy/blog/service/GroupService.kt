@@ -1,14 +1,14 @@
 package com.zzy.blog.service
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
-import com.zzy.blog.context.AuthContextHolder
 import com.zzy.blog.dto.CreateGroupRequest
 import com.zzy.blog.dto.GroupResponse
 import com.zzy.blog.dto.UpdateGroupRequest
 import com.zzy.blog.entity.Document
 import com.zzy.blog.entity.Group
-import com.zzy.blog.exception.ForbiddenException
-import com.zzy.blog.exception.ResourceNotFoundException
+import com.zzy.common.context.AuthContextHolder
+import com.zzy.common.exception.ForbiddenException
+import com.zzy.common.exception.ResourceNotFoundException
 import com.zzy.blog.mapper.DocumentMapper
 import com.zzy.blog.mapper.GroupMapper
 import org.slf4j.LoggerFactory

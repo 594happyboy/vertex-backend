@@ -1,17 +1,19 @@
-package com.zzy.blog.config
+package com.zzy.common.config
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.context.annotation.Configuration
 import java.time.Duration
 
 /**
- * Token 刷新配置（分布式锁方案）
+ * Token 刷新配置
  * 
  * ## 核心功能
- * 使用 Redis 分布式锁确保并发请求只刷新一次 Token
+ * - 管理分布式锁超时配置
+ * - 管理 Token 缓存配置
+ * - 管理 RefreshToken 生命周期
  * 
  * @author ZZY
- * @date 2025-10-30
+ * @date 2025-11-06
  */
 @Configuration
 @ConfigurationProperties(prefix = "jwt.refresh")
@@ -28,3 +30,4 @@ data class TokenConfig(
     /** RefreshToken 轮换宽限期（并发窗口内旧 token 短暂可用） */
     var gracePeriod: Duration = Duration.ofSeconds(20)
 )
+

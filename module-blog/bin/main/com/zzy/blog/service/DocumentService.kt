@@ -2,11 +2,12 @@ package com.zzy.blog.service
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page
-import com.zzy.blog.context.AuthContextHolder
+import com.zzy.blog.constants.DocumentConstants
 import com.zzy.blog.dto.*
 import com.zzy.blog.entity.Document
-import com.zzy.blog.exception.ForbiddenException
-import com.zzy.blog.exception.ResourceNotFoundException
+import com.zzy.common.context.AuthContextHolder
+import com.zzy.common.exception.ForbiddenException
+import com.zzy.common.exception.ResourceNotFoundException
 import com.zzy.blog.mapper.DocumentMapper
 import com.zzy.file.service.FileService
 import com.zzy.file.service.FileReferenceService
@@ -34,12 +35,6 @@ class DocumentService(
     
     private val logger = LoggerFactory.getLogger(DocumentService::class.java)
     
-    companion object {
-        // 支持的文档文件类型
-        private val SUPPORTED_EXTENSIONS = setOf("md", "pdf", "txt")
-        private const val MAX_LIMIT = 100
-    }
-    
     /**
      * 查询文档列表（游标分页）
      */
@@ -47,7 +42,7 @@ class DocumentService(
         val authUser = AuthContextHolder.getAuthUser()
             ?: throw ForbiddenException("未登录")
         
-        val validLimit = request.limit.coerceIn(1, MAX_LIMIT)
+        val validLimit = request.limit.coerceIn(1, DocumentConstants.MAX_LIMIT)
         val validRequest = object : CursorPageRequest {
             override val cursor = request.cursor
             override val limit = validLimit
@@ -188,8 +183,8 @@ class DocumentService(
         val originalFilename = file.originalFilename ?: throw IllegalArgumentException("文件名不能为空")
         val extension = originalFilename.substringAfterLast('.', "").lowercase()
         
-        if (extension !in SUPPORTED_EXTENSIONS) {
-            throw IllegalArgumentException("不支持的文件类型: $extension，仅支持: ${SUPPORTED_EXTENSIONS.joinToString()}")
+        if (extension !in DocumentConstants.SUPPORTED_EXTENSIONS) {
+            throw IllegalArgumentException("不支持的文件类型: $extension，仅支持: ${DocumentConstants.SUPPORTED_EXTENSIONS.joinToString()}")
         }
         
         // 1. 上传文件到系统/知识库文件夹（使用统一的系统文件夹管理）
@@ -294,7 +289,7 @@ class DocumentService(
         val originalFilename = file.originalFilename ?: throw IllegalArgumentException("文件名不能为空")
         val extension = originalFilename.substringAfterLast('.', "").lowercase()
         
-        if (extension !in SUPPORTED_EXTENSIONS) {
+        if (extension !in DocumentConstants.SUPPORTED_EXTENSIONS) {
             throw IllegalArgumentException("不支持的文件类型: $extension")
         }
         

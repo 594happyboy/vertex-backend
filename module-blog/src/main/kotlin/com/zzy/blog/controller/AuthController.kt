@@ -1,8 +1,9 @@
 package com.zzy.blog.controller
 
-import com.zzy.blog.context.AuthContextHolder
 import com.zzy.blog.dto.*
 import com.zzy.blog.service.AuthService
+import com.zzy.common.constants.AuthConstants
+import com.zzy.common.context.AuthContextHolder
 import com.zzy.common.dto.ApiResponse
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.tags.Tag
@@ -22,10 +23,6 @@ import org.springframework.web.bind.annotation.*
 class AuthController(
     private val authService: AuthService
 ) {
-    
-    companion object {
-        const val REFRESH_TOKEN_COOKIE_NAME = "refreshToken"
-    }
     
     /**
      * 用户登录（双Token模式）
@@ -47,11 +44,11 @@ class AuthController(
         val response = authService.login(request, httpRequest)
         
         // 将 RefreshToken 设置到 HttpOnly Cookie（防XSS）
-        val cookie = Cookie(REFRESH_TOKEN_COOKIE_NAME, response.refreshToken).apply {
+        val cookie = Cookie(AuthConstants.REFRESH_TOKEN_COOKIE_NAME, response.refreshToken).apply {
             isHttpOnly = true      // 防止JS访问
             secure = false         // 生产环境应设为true（仅HTTPS）
             path = "/"
-            maxAge = 7 * 24 * 60 * 60  // 7天
+            maxAge = AuthConstants.COOKIE_MAX_AGE
         }
         httpResponse.addCookie(cookie)
         
@@ -87,7 +84,7 @@ class AuthController(
         authService.logout(userId)
         
         // 清除Cookie
-        val cookie = Cookie(REFRESH_TOKEN_COOKIE_NAME, "").apply {
+        val cookie = Cookie(AuthConstants.REFRESH_TOKEN_COOKIE_NAME, "").apply {
             isHttpOnly = true
             secure = false
             path = "/"

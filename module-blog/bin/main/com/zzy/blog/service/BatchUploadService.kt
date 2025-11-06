@@ -1,12 +1,13 @@
 package com.zzy.blog.service
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
-import com.zzy.blog.context.AuthContextHolder
+import com.zzy.blog.constants.DocumentConstants
 import com.zzy.blog.dto.BatchUploadResponse
 import com.zzy.blog.dto.BatchUploadResultItem
 import com.zzy.blog.entity.Document
 import com.zzy.blog.entity.Group
-import com.zzy.blog.exception.ResourceNotFoundException
+import com.zzy.common.context.AuthContextHolder
+import com.zzy.common.exception.ResourceNotFoundException
 import com.zzy.blog.mapper.DocumentMapper
 import com.zzy.blog.mapper.GroupMapper
 import org.slf4j.LoggerFactory
@@ -38,13 +39,6 @@ class BatchUploadService(
 ) {
     
     private val logger = LoggerFactory.getLogger(BatchUploadService::class.java)
-    
-    companion object {
-        // 支持的文档文件类型
-        private val SUPPORTED_DOC_TYPES = setOf("md", "txt", "pdf")
-        // 最大文件大小: 100MB
-        private const val MAX_FILE_SIZE = 100 * 1024 * 1024L
-    }
     
     /**
      * 批量上传ZIP文件
@@ -140,7 +134,7 @@ class BatchUploadService(
             throw IllegalArgumentException("上传文件不能为空")
         }
         
-        if (file.size > MAX_FILE_SIZE) {
+        if (file.size > DocumentConstants.MAX_FILE_SIZE) {
             throw IllegalArgumentException("文件大小超过限制，最大100MB")
         }
         
@@ -294,7 +288,7 @@ class BatchUploadService(
             val extension = file.extension.lowercase()
             
             // 检查文件类型
-            if (extension !in SUPPORTED_DOC_TYPES) {
+            if (extension !in DocumentConstants.SUPPORTED_EXTENSIONS) {
                 results.add(
                     BatchUploadResultItem(
                         type = "document",

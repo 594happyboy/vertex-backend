@@ -1,4 +1,4 @@
-package com.zzy.blog.util
+package com.zzy.common.util
 
 import io.jsonwebtoken.Claims
 import io.jsonwebtoken.Jwts
@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets
 import java.util.*
 
 /**
- * JWT 工具类（方案4：分布式锁）
+ * JWT 工具类
  * 
  * ## 核心功能
  * - 生成 AccessToken
@@ -19,7 +19,7 @@ import java.util.*
  * - 获取 Token 信息
  * 
  * @author ZZY
- * @date 2025-10-30
+ * @date 2025-11-06
  */
 @Component
 class JwtUtil {
@@ -117,3 +117,4 @@ class JwtUtil {
         }
     }
 }
+
