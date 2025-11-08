@@ -10,6 +10,7 @@ import com.zzy.common.context.AuthContextHolder
 import com.zzy.common.exception.ResourceNotFoundException
 import com.zzy.blog.mapper.DocumentMapper
 import com.zzy.blog.mapper.GroupMapper
+import com.zzy.file.mapper.FileMapper
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -35,7 +36,9 @@ class BatchUploadService(
     private val documentMapper: DocumentMapper,
     private val directoryTreeService: DirectoryTreeService,
     private val fileService: com.zzy.file.service.FileService,
-    private val systemFolderManager: com.zzy.file.service.SystemFolderManager
+    private val systemFolderManager: com.zzy.file.service.SystemFolderManager,
+    private val fileMapper: FileMapper,
+    private val folderMapper: com.zzy.file.mapper.FolderMapper
 ) {
     
     private val logger = LoggerFactory.getLogger(BatchUploadService::class.java)
@@ -302,29 +305,39 @@ class BatchUploadService(
                 return false
             }
             
-            // 1. 获取知识库文件夹ID
-            val knowledgeBaseFolderId = systemFolderManager.getOrCreateSystemFolder(
+            // 1. 获取知识库文件夹的内部ID
+            val knowledgeBaseFolderInternalId = systemFolderManager.getOrCreateSystemFolder(
                 userId = userId,
                 type = com.zzy.file.service.SystemFolderManager.SystemFolderType.KNOWLEDGE_BASE
             )
             
-            // 2. 上传文件到文件管理系统的知识库文件夹
+            // 2. 查询文件夹的公开ID
+            val knowledgeBaseFolder = folderMapper.selectById(knowledgeBaseFolderInternalId)
+                ?: throw com.zzy.common.exception.BusinessException(500, "知识库文件夹创建失败")
+            val knowledgeBaseFolderPublicId = knowledgeBaseFolder.publicId
+                ?: throw com.zzy.common.exception.BusinessException(500, "知识库文件夹缺少公开ID")
+            
+            // 3. 上传文件到文件管理系统的知识库文件夹
             val multipartFile = convertToMultipartFile(file)
             val fileResponse = fileService.uploadFile(
                 userId = userId,
                 file = multipartFile,
                 request = com.zzy.file.dto.FileUploadRequest(
-                    folderId = knowledgeBaseFolderId
+                    folderId = knowledgeBaseFolderPublicId
                 )
             )
             
-            // 3. 创建文档记录
+            // 4. 通过公开ID查询文件元数据获取内部ID
+            val fileMetadata = fileMapper.selectByPublicId(fileResponse.id)
+                ?: throw com.zzy.common.exception.BusinessException(500, "文件上传成功但查询失败: ${fileName}")
+            
+            // 5. 创建文档记录
             val document = Document(
                 userId = userId,
                 groupId = groupId,
                 title = fileName.substringBeforeLast("."),
                 type = extension,
-                fileId = fileResponse.id,
+                fileId = fileMetadata.id,
                 filePath = fileResponse.downloadUrl,
                 sortIndex = 0
             )

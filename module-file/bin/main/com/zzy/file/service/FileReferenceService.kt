@@ -1,6 +1,8 @@
 package com.zzy.file.service
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
+import com.zzy.common.exception.BusinessException
+import com.zzy.file.entity.FileMetadata
 import com.zzy.file.entity.FileReference
 import com.zzy.file.entity.ReferenceType
 import com.zzy.file.mapper.FileMapper
@@ -33,6 +35,14 @@ class FileReferenceService(
 ) {
     
     private val logger = LoggerFactory.getLogger(FileReferenceService::class.java)
+    
+    /**
+     * 通过公开ID获取文件
+     */
+    fun getFileByPublicId(publicId: String): FileMetadata {
+        return fileMapper.selectByPublicId(publicId)
+            ?: throw BusinessException(404, "文件不存在")
+    }
     
     /**
      * 同步文档内容的文件引用

@@ -61,7 +61,7 @@ class TrashService(
     }
     
     /**
-     * 恢复文件
+     * 恢复文件（通过数字ID）
      */
     @Transactional(rollbackFor = [Exception::class])
     fun restoreFile(fileId: Long, userId: Long): Boolean {
@@ -84,7 +84,30 @@ class TrashService(
     }
     
     /**
-     * 永久删除文件
+     * 恢复文件（通过公开ID - 对外接口）
+     */
+    @Transactional(rollbackFor = [Exception::class])
+    fun restoreFileByPublicId(publicId: String, userId: Long): Boolean {
+        val file = fileMapper.selectByPublicId(publicId)
+            ?: throw BusinessException(404, "文件不存在")
+        
+        if (file.userId != userId) {
+            throw BusinessException(403, "无权恢复该文件")
+        }
+        
+        if (!file.deleted) {
+            logger.warn("文件未被删除，无需恢复: publicId={}", publicId)
+            return false
+        }
+        
+        fileMapper.restore(file.id!!)
+        logger.info("文件已从回收站恢复: publicId={}, fileName={}", publicId, file.fileName)
+        
+        return true
+    }
+    
+    /**
+     * 永久删除文件（通过数字ID）
      */
     @Transactional(rollbackFor = [Exception::class])
     fun permanentlyDeleteFile(fileId: Long, userId: Long): Boolean {
@@ -106,6 +129,33 @@ class TrashService(
         // 从数据库物理删除
         fileMapper.hardDelete(fileId)
         logger.info("文件永久删除成功: fileId={}, fileName={}", fileId, file.fileName)
+        
+        return true
+    }
+    
+    /**
+     * 永久删除文件（通过公开ID - 对外接口）
+     */
+    @Transactional(rollbackFor = [Exception::class])
+    fun permanentlyDeleteFileByPublicId(publicId: String, userId: Long): Boolean {
+        val file = fileMapper.selectByPublicId(publicId)
+            ?: throw BusinessException(404, "文件不存在")
+        
+        if (file.userId != userId) {
+            throw BusinessException(403, "无权删除该文件")
+        }
+        
+        // 从MinIO删除
+        try {
+            storageService.deleteFile(file.storedName ?: "")
+            logger.info("从MinIO删除文件: {}", file.storedName)
+        } catch (e: Exception) {
+            logger.warn("从MinIO删除文件失败: {}", file.storedName, e)
+        }
+        
+        // 从数据库物理删除（使用内部数字ID）
+        fileMapper.hardDelete(file.id!!)
+        logger.info("文件永久删除成功: publicId={}, fileName={}", publicId, file.fileName)
         
         return true
     }

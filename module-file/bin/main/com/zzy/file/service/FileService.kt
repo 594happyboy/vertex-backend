@@ -9,6 +9,7 @@ import com.zzy.file.mapper.FileMapper
 import com.zzy.file.mapper.FolderMapper
 import com.zzy.file.util.FileUtil
 import com.zzy.file.util.FileSizeFormatter
+import com.zzy.file.util.NanoIdGenerator
 import com.zzy.file.constants.FileConstants
 import com.zzy.common.util.RedisUtil
 import com.zzy.file.service.common.ValidationService
@@ -18,6 +19,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
+import org.springframework.dao.DuplicateKeyException
 import java.io.InputStream
 import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
@@ -47,7 +49,7 @@ class FileService(
     private lateinit var allowedTypes: String
     
     /**
-     * 上传文件
+     * 上传文件（支持覆盖上传）
      */
     @Transactional(rollbackFor = [Exception::class])
     fun uploadFile(
@@ -58,29 +60,47 @@ class FileService(
         // 1. 验证文件
         validateFile(file)
         
-        // 2. 检查文件夹是否存在
-        if (request.folderId != null) {
-            val folder = folderMapper.selectById(request.folderId)
+        // 2. 如果是覆盖上传，执行覆盖逻辑
+        if (request.replaceFileId != null) {
+            return replaceFile(userId, file, request)
+        }
+        
+        // 3. 生成唯一的公开ID
+        val publicId = NanoIdGenerator.generateUnique({ id: String ->
+            fileMapper.existsByPublicId(id) > 0
+        })
+        
+        // 4. 检查文件夹是否存在（将 publicId 转换为内部 ID）
+        val targetFolderId: Long? = if (request.folderId != null) {
+            val folder = folderMapper.selectByPublicId(request.folderId)
             if (folder == null || folder.deleted) {
                 throw BusinessException(404, "文件夹不存在")
             }
             if (folder.userId != userId) {
                 throw BusinessException(403, "无权上传到该文件夹")
             }
+            folder.id // 使用内部 Long ID
+        } else {
+            null
         }
         
-        // 3. 计算MD5（用于秒传）
+        // 5. 计算MD5（用于秒传）
         val md5 = FileUtil.calculateMd5(file)
         
-        // 4. 检查是否存在相同文件（秒传）
+        // 6. 检查是否存在相同文件（秒传）
         val existingFile = fileMapper.selectByMd5(md5)
         if (existingFile != null && !existingFile.deleted) {
             logger.info("文件已存在，执行秒传: {}", file.originalFilename)
             // 创建新的元数据记录（不同用户、不同文件夹）
             val originalFilename = file.originalFilename ?: "unknown"
+            // 为秒传文件也生成新的公开ID
+            val secondPublicId = NanoIdGenerator.generateUnique({ id: String ->
+                fileMapper.existsByPublicId(id) > 0
+            })
             val newFile = FileMetadata(
+                publicId = secondPublicId,
                 userId = userId,
-                folderId = request.folderId,
+                folderId = targetFolderId,  // 使用内部 Long ID
                 fileName = originalFilename,
                 storedName = existingFile.storedName,
                 fileSize = existingFile.fileSize,
@@ -97,12 +117,12 @@ class FileService(
             return FileResponse.fromEntity(newFile)
         }
         
-        // 5. 生成存储文件名
+        // 7. 生成存储文件名
         val originalFilename = file.originalFilename ?: "unknown"
         val storedName = FileUtil.generateUniqueFileName(originalFilename)
         val fileExtension = FileUtil.getFileExtension(originalFilename)
         
-        // 6. 上传到MinIO
+        // 8. 上传到MinIO
         try {
             storageService.uploadFile(file, storedName)
         } catch (e: Exception) {
@@ -110,10 +130,11 @@ class FileService(
             throw BusinessException(500, "文件上传失败")
         }
         
-        // 7. 保存元数据到数据库
+        // 9. 保存元数据到数据库
         val fileMetadata = FileMetadata(
+            publicId = publicId,
             userId = userId,
-            folderId = request.folderId,
+            folderId = targetFolderId,  // 使用内部 Long ID
             fileName = originalFilename,
             storedName = storedName,
             fileSize = file.size,
@@ -128,19 +149,132 @@ class FileService(
         
         try {
             fileMapper.insert(fileMetadata)
-            logger.info("文件元数据保存成功: userId={}, fileName={}, folderId={}", 
-                userId, originalFilename, request.folderId)
+            logger.info("文件元数据保存成功: userId={}, fileName={}, publicId={}, folderId={}", 
+                userId, originalFilename, publicId, targetFolderId)
+        } catch (e: DuplicateKeyException) {
+            // 如果数据库保存失败（公开ID冲突），删除已上传的文件
+            storageService.deleteFile(storedName)
+            logger.error("公开ID冲突，文件元数据保存失败", e)
+            throw BusinessException(500, "ID生成冲突，请重试")
         } catch (e: Exception) {
-            // 如果数据库保存失败，删除已上传的文件
+            // 其他数据库错误
             storageService.deleteFile(storedName)
             logger.error("文件元数据保存失败", e)
             throw BusinessException(500, "文件信息保存失败")
         }
         
-        // 8. 清除缓存
+        // 10. 清除缓存
         clearFileListCache(userId)
         
         return FileResponse.fromEntity(fileMetadata)
+    }
+    
+    /**
+     * 覆盖上传文件
+     * 保留原文件的 publicId、uploadTime 和 downloadCount，更新文件内容相关字段
+     */
+    @Transactional(rollbackFor = [Exception::class])
+    private fun replaceFile(
+        userId: Long,
+        file: MultipartFile,
+        request: FileUploadRequest
+    ): FileResponse {
+        val replaceFileId = request.replaceFileId 
+            ?: throw BusinessException(400, "replaceFileId 不能为空")
+        
+        // 1. 验证原文件存在且属于该用户
+        val originalFile = validationService.validateAndGetFileByPublicId(replaceFileId, userId)
+        
+        if (originalFile.deleted) {
+            throw BusinessException(400, "不能覆盖已删除的文件")
+        }
+        
+        logger.info("开始覆盖文件: userId={}, originalFileId={}, originalFileName={}, newFileName={}", 
+            userId, replaceFileId, originalFile.fileName, file.originalFilename)
+        
+        // 2. 计算新文件的 MD5
+        val newMd5 = FileUtil.calculateMd5(file)
+        
+        // 3. 生成新的存储文件名
+        val originalFilename = file.originalFilename ?: "unknown"
+        val newStoredName = FileUtil.generateUniqueFileName(originalFilename)
+        val newFileExtension = FileUtil.getFileExtension(originalFilename)
+        
+        // 4. 保存旧的 storedName 用于后续删除
+        val oldStoredName = originalFile.storedName
+        
+        // 5. 上传新文件到 MinIO
+        try {
+            storageService.uploadFile(file, newStoredName)
+            logger.info("新文件上传成功: storedName={}", newStoredName)
+        } catch (e: Exception) {
+            logger.error("新文件上传到存储失败", e)
+            throw BusinessException(500, "文件上传失败")
+        }
+        
+        // 6. 更新数据库记录（保留 publicId、uploadTime、downloadCount）
+        try {
+            originalFile.apply {
+                fileName = originalFilename
+                storedName = newStoredName
+                fileSize = file.size
+                fileType = file.contentType ?: "application/octet-stream"
+                fileExtension = newFileExtension
+                filePath = newStoredName
+                fileMd5 = newMd5
+                updateTime = LocalDateTime.now()
+                
+                // 如果提供了新的描述，则更新描述
+                if (request.description != null) {
+                    description = request.description
+                }
+                
+                // 如果提供了新的文件夹，则更新文件夹
+                if (request.folderId != null) {
+                    val targetFolder = folderMapper.selectByPublicId(request.folderId)
+                    if (targetFolder == null || targetFolder.deleted) {
+                        throw BusinessException(404, "目标文件夹不存在")
+                    }
+                    if (targetFolder.userId != userId) {
+                        throw BusinessException(403, "无权访问该文件夹")
+                    }
+                    folderId = targetFolder.id
+                }
+            }
+            
+            fileMapper.updateById(originalFile)
+            logger.info("文件元数据更新成功: publicId={}, newFileName={}", replaceFileId, originalFilename)
+            
+        } catch (e: Exception) {
+            // 如果数据库更新失败，删除已上传的新文件
+            try {
+                storageService.deleteFile(newStoredName)
+                logger.warn("数据库更新失败，已删除新上传的文件: {}", newStoredName)
+            } catch (deleteEx: Exception) {
+                logger.error("清理新上传文件失败", deleteEx)
+            }
+            logger.error("文件元数据更新失败", e)
+            throw BusinessException(500, "文件覆盖失败")
+        }
+        
+        // 7. 删除 MinIO 中的旧文件（异步删除，失败不影响主流程）
+        try {
+            if (oldStoredName != null) {
+                storageService.deleteFile(oldStoredName)
+                logger.info("旧文件已删除: storedName={}", oldStoredName)
+            }
+        } catch (e: Exception) {
+            // 删除失败只记录日志，不影响覆盖操作的成功
+            logger.error("删除旧文件失败: storedName={}", oldStoredName, e)
+        }
+        
+        // 8. 清除缓存
+        clearFileInfoCacheByPublicId(replaceFileId)
+        clearFileListCache(userId)
+        
+        logger.info("文件覆盖成功: publicId={}, fileName={}", replaceFileId, originalFilename)
+        
+        return FileResponse.fromEntity(originalFile)
     }
     
     /**
@@ -167,15 +301,21 @@ class FileService(
         logger.info("上传文件到系统文件夹: userId={}, type={}, fileName={}", 
             userId, folderType.name, file.originalFilename)
         
-        // 1. 获取或创建对应的系统文件夹
-        val folderId = systemFolderManager.getOrCreateSystemFolder(userId, folderType)
+        // 1. 获取或创建对应的系统文件夹（内部 Long ID）
+        val folderInternalId = systemFolderManager.getOrCreateSystemFolder(userId, folderType)
         
-        // 2. 调用原有的上传方法
+        // 2. 查询文件夹的 publicId
+        val folder = folderMapper.selectById(folderInternalId)
+            ?: throw BusinessException(500, "系统文件夹创建失败")
+        val folderPublicId = folder.publicId
+            ?: throw BusinessException(500, "系统文件夹缺少公开ID")
+        
+        // 3. 调用原有的上传方法
         return uploadFile(
             userId = userId,
             file = file,
             request = FileUploadRequest(
-                folderId = folderId,
+                folderId = folderPublicId,
                 description = description
             )
         )
@@ -243,14 +383,14 @@ class FileService(
         val folder = folderMapper.selectById(folderId) ?: return null
         if (folder.deleted || folder.userId != userId) return null
         return FolderBreadcrumb(
-            id = folder.id,
+            id = folder.publicId,  // 使用公开ID
             name = folder.name,
             path = pathBuilderService.buildFolderPath(folderId, userId)
         )
     }
     
     /**
-     * 获取文件详情
+     * 获取文件详情（通过数字ID - 内部使用）
      */
     fun getFileInfo(fileId: Long, userId: Long): FileResponse {
         // 尝试从缓存获取
@@ -269,7 +409,26 @@ class FileService(
     }
     
     /**
-     * 更新文件信息
+     * 获取文件详情（通过公开ID - 对外接口）
+     */
+    fun getFileInfoByPublicId(publicId: String, userId: Long): FileResponse {
+        // 尝试从缓存获取（使用 publicId 作为缓存键）
+        val cacheKey = "${FileConstants.Cache.KEY_FILE_INFO}public:$publicId"
+        redisUtil.get(cacheKey, FileResponse::class.java)?.let {
+            logger.debug("从缓存获取文件信息: publicId={}", publicId)
+            return it
+        }
+        
+        val fileMetadata = validationService.validateAndGetFileByPublicId(publicId, userId)
+        val response = FileResponse.fromEntity(fileMetadata)
+        
+        // 缓存结果
+        redisUtil.set(cacheKey, response, FileConstants.Cache.EXPIRE_LONG, TimeUnit.SECONDS)
+        return response
+    }
+    
+    /**
+     * 更新文件信息（通过数字ID - 内部使用）
      */
     @Transactional(rollbackFor = [Exception::class])
     fun updateFile(fileId: Long, userId: Long, request: UpdateFileRequest): FileResponse {
@@ -282,11 +441,19 @@ class FileService(
             updated = true
         }
         
-        // 更新文件夹
-        if (request.folderId != file.folderId) {
-            validationService.validateTargetFolder(request.folderId, userId)
-            file.folderId = request.folderId
-            updated = true
+        // 更新文件夹（将 publicId 转换为内部 ID）
+        request.folderId?.let { folderPublicId ->
+            val targetFolder = folderMapper.selectByPublicId(folderPublicId)
+            if (targetFolder == null || targetFolder.deleted) {
+                throw BusinessException(404, "目标文件夹不存在")
+            }
+            if (targetFolder.userId != userId) {
+                throw BusinessException(403, "无权访问该文件夹")
+            }
+            if (targetFolder.id != file.folderId) {
+                file.folderId = targetFolder.id
+                updated = true
+            }
         }
         
         // 更新描述
@@ -306,7 +473,53 @@ class FileService(
     }
     
     /**
-     * 下载文件
+     * 更新文件信息（通过Nano ID - 对外接口）
+     */
+    @Transactional(rollbackFor = [Exception::class])
+    fun updateFileByPublicId(publicId: String, userId: Long, request: UpdateFileRequest): FileResponse {
+        val file = validationService.validateAndGetFileByPublicId(publicId, userId)
+        var updated = false
+        
+        // 更新文件名
+        request.fileName?.takeIf { it != file.fileName }?.let {
+            file.fileName = it
+            updated = true
+        }
+        
+        // 更新文件夹（将 publicId 转换为内部 ID）
+        request.folderId?.let { folderPublicId ->
+            val targetFolder = folderMapper.selectByPublicId(folderPublicId)
+            if (targetFolder == null || targetFolder.deleted) {
+                throw BusinessException(404, "目标文件夹不存在")
+            }
+            if (targetFolder.userId != userId) {
+                throw BusinessException(403, "无权访问该文件夹")
+            }
+            if (targetFolder.id != file.folderId) {
+                file.folderId = targetFolder.id
+                updated = true
+            }
+        }
+        
+        // 更新描述
+        request.description?.takeIf { it != file.description }?.let {
+            file.description = it
+            updated = true
+        }
+        
+        if (updated) {
+            file.updateTime = LocalDateTime.now()
+            fileMapper.updateById(file)
+            clearFileInfoCacheByPublicId(publicId)
+            clearFileListCache(userId)
+            logger.info("更新文件信息成功: publicId={}, fileName={}", publicId, file.fileName)
+        }
+        
+        return FileResponse.fromEntity(file)
+    }
+    
+    /**
+     * 下载文件（通过数字ID - 内部使用）
      */
     fun downloadFile(fileId: Long): Pair<InputStream, FileMetadata> {
         val fileMetadata = fileMapper.selectById(fileId)
@@ -329,32 +542,69 @@ class FileService(
     }
     
     /**
+     * 下载文件（通过公开ID - 对外接口，公开访问）
+     */
+    fun downloadFileByPublicId(publicId: String): Pair<InputStream, FileMetadata> {
+        val fileMetadata = fileMapper.selectByPublicId(publicId)
+            ?: throw BusinessException(404, "文件不存在")
+        
+        if (fileMetadata.deleted) {
+            throw BusinessException(404, "文件已被删除")
+        }
+        
+        // 从存储获取文件流
+        val inputStream = storageService.downloadFile(fileMetadata.storedName ?: "")
+        
+        // 增加下载次数（使用内部数字ID）
+        fileMapper.increaseDownloadCount(fileMetadata.id!!)
+        
+        // 清除文件信息缓存（使用 publicId）
+        clearFileInfoCacheByPublicId(publicId)
+        
+        return Pair(inputStream, fileMetadata)
+    }
+    
+    /**
      * 批量移动文件
      */
     @Transactional(rollbackFor = [Exception::class])
     fun batchMoveFiles(userId: Long, request: BatchMoveFilesRequest): Int {
+        // 将 publicId 列表转换为内部 ID 列表
+        val files = fileMapper.selectBatchByPublicIds(request.fileIds)
+        val fileIds = files.map { it.id!! }
+        
         // 验证文件归属
-        val files = fileMapper.selectBatchIds(request.fileIds)
         validationService.validateFileOwnership(files, userId)
         
-        // 验证目标文件夹
-        validationService.validateTargetFolder(request.targetFolderId, userId)
+        // 验证并获取目标文件夹的内部 ID
+        val targetFolderId = if (request.targetFolderId != null) {
+            val targetFolder = folderMapper.selectByPublicId(request.targetFolderId)
+            if (targetFolder == null || targetFolder.deleted) {
+                throw BusinessException(404, "目标文件夹不存在")
+            }
+            if (targetFolder.userId != userId) {
+                throw BusinessException(403, "无权访问该文件夹")
+            }
+            targetFolder.id
+        } else {
+            null
+        }
         
         // 批量移动
-        val count = fileMapper.batchMoveFiles(request.fileIds, request.targetFolderId)
+        val count = fileMapper.batchMoveFiles(fileIds, targetFolderId)
         
         // 清除缓存
         clearFileListCache(userId)
-        request.fileIds.forEach { clearFileInfoCache(it) }
+        files.forEach { clearFileInfoCacheByPublicId(it.publicId!!) }
         
         logger.info("批量移动文件成功: userId={}, count={}, targetFolderId={}", 
-            userId, count, request.targetFolderId)
+            userId, count, targetFolderId)
         
         return count
     }
     
     /**
-     * 删除文件（软删除）
+     * 删除文件（软删除）- 通过数字ID
      */
     @Transactional(rollbackFor = [Exception::class])
     fun deleteFile(fileId: Long, userId: Long): Boolean {
@@ -372,6 +622,25 @@ class FileService(
     }
     
     /**
+     * 删除文件（软删除）- 通过公开ID（对外接口）
+     */
+    @Transactional(rollbackFor = [Exception::class])
+    fun deleteFileByPublicId(publicId: String, userId: Long): Boolean {
+        val file = validationService.validateAndGetFileByPublicId(publicId, userId)
+        
+        // 软删除（使用内部数字ID）
+        fileMapper.softDelete(file.id!!)
+        
+        // 清除缓存
+        clearFileInfoCacheByPublicId(publicId)
+        clearFileListCache(userId)
+        
+        logger.info("文件已移入回收站: publicId={}, fileName={}", publicId, file.fileName)
+        
+        return true
+    }
+    
+    /**
      * 批量操作文件（统一接口）
      */
     @Transactional(rollbackFor = [Exception::class])
@@ -379,68 +648,73 @@ class FileService(
         val successList = mutableListOf<String>()
         val failureList = mutableListOf<BatchOperationFailure>()
         
-        // 验证文件归属
-        val files = fileMapper.selectBatchIds(request.fileIds)
-        val fileMap = files.associateBy { it.id!! }
+        // 验证文件归属 - 使用公开ID查询
+        val files = fileMapper.selectBatchByPublicIds(request.fileIds)
+        val fileMap = files.associateBy { it.publicId!! }
         
-        request.fileIds.forEach { fileId ->
+        request.fileIds.forEach { publicId ->
             try {
-                val file = fileMap[fileId]
+                val file = fileMap[publicId]
                 if (file == null) {
-                    failureList.add(BatchOperationFailure(fileId.toString(), "文件不存在"))
+                    failureList.add(BatchOperationFailure(publicId, "文件不存在"))
                     return@forEach
                 }
                 
                 if (file.userId != userId) {
-                    failureList.add(BatchOperationFailure(fileId.toString(), "无权操作该文件"))
+                    failureList.add(BatchOperationFailure(publicId, "无权操作该文件"))
                     return@forEach
                 }
+                
+                val dbId = file.id!!
                 
                 when (request.action) {
                     BatchAction.move -> {
                         if (request.targetFolderId == null) {
-                            failureList.add(BatchOperationFailure(fileId.toString(), "目标文件夹不能为空"))
+                            failureList.add(BatchOperationFailure(publicId, "目标文件夹不能为空"))
                             return@forEach
                         }
-                        // 验证目标文件夹
-                        if (request.targetFolderId != 0L) {
-                            val targetFolder = folderMapper.selectById(request.targetFolderId)
+                        // 验证目标文件夹 - 使用公开ID查询
+                        val targetFolderDbId = if (request.targetFolderId == "root" || request.targetFolderId.isEmpty()) {
+                            null
+                        } else {
+                            val targetFolder = folderMapper.selectByPublicId(request.targetFolderId)
                             if (targetFolder == null || targetFolder.deleted) {
-                                failureList.add(BatchOperationFailure(fileId.toString(), "目标文件夹不存在"))
+                                failureList.add(BatchOperationFailure(publicId, "目标文件夹不存在"))
                                 return@forEach
                             }
                             if (targetFolder.userId != userId) {
-                                failureList.add(BatchOperationFailure(fileId.toString(), "无权访问目标文件夹"))
+                                failureList.add(BatchOperationFailure(publicId, "无权访问目标文件夹"))
                                 return@forEach
                             }
+                            targetFolder.id!!
                         }
-                        // 移动文件
-                        fileMapper.batchMoveFiles(listOf(fileId), request.targetFolderId)
-                        clearFileInfoCache(fileId)
-                        successList.add(fileId.toString())
+                        // 移动文件 - 使用数据库ID
+                        fileMapper.batchMoveFiles(listOf(dbId), targetFolderDbId)
+                        clearFileInfoCache(dbId)
+                        successList.add(publicId)
                     }
                     BatchAction.delete -> {
                         if (!file.deleted) {
-                            fileMapper.softDelete(fileId)
-                            clearFileInfoCache(fileId)
+                            fileMapper.softDelete(dbId)
+                            clearFileInfoCache(dbId)
                         }
-                        successList.add(fileId.toString())
+                        successList.add(publicId)
                     }
                     BatchAction.restore -> {
                         if (file.deleted) {
-                            fileMapper.restore(fileId)
-                            clearFileInfoCache(fileId)
+                            fileMapper.restore(dbId)
+                            clearFileInfoCache(dbId)
                         }
-                        successList.add(fileId.toString())
+                        successList.add(publicId)
                     }
                     BatchAction.tag -> {
                         // TODO: 实现标签功能
-                        failureList.add(BatchOperationFailure(fileId.toString(), "标签功能暂未实现"))
+                        failureList.add(BatchOperationFailure(publicId, "标签功能暂未实现"))
                     }
                 }
             } catch (e: Exception) {
-                logger.error("批量操作文件失败: fileId={}, action={}", fileId, request.action, e)
-                failureList.add(BatchOperationFailure(fileId.toString(), e.message ?: "操作失败"))
+                logger.error("批量操作文件失败: publicId={}, action={}", publicId, request.action, e)
+                failureList.add(BatchOperationFailure(publicId, e.message ?: "操作失败"))
             }
         }
         
@@ -461,16 +735,19 @@ class FileService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun batchDeleteFiles(userId: Long, request: BatchDeleteFilesRequest): Int {
+        // 将 publicId 列表转换为内部 ID 列表
+        val files = fileMapper.selectBatchByPublicIds(request.fileIds)
+        val fileIds = files.map { it.id!! }
+        
         // 验证文件归属
-        val files = fileMapper.selectBatchIds(request.fileIds)
         validationService.validateFileOwnership(files, userId)
         
         // 批量软删除
-        val count = fileMapper.batchSoftDelete(request.fileIds)
+        val count = fileMapper.batchSoftDelete(fileIds)
         
         // 清除缓存
         clearFileListCache(userId)
-        request.fileIds.forEach { clearFileInfoCache(it) }
+        files.forEach { clearFileInfoCacheByPublicId(it.publicId!!) }
         
         logger.info("批量删除文件成功: userId={}, count={}", userId, count)
         
@@ -569,10 +846,17 @@ class FileService(
     }
     
     /**
-     * 清除文件信息缓存
+     * 清除文件信息缓存（通过数字ID）
      */
     private fun clearFileInfoCache(fileId: Long) {
         redisUtil.delete("${FileConstants.Cache.KEY_FILE_INFO}$fileId")
+    }
+    
+    /**
+     * 清除文件信息缓存（通过公开ID）
+     */
+    private fun clearFileInfoCacheByPublicId(publicId: String) {
+        redisUtil.delete("${FileConstants.Cache.KEY_FILE_INFO}public:$publicId")
     }
     
     /**

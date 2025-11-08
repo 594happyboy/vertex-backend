@@ -2,23 +2,19 @@ package com.zzy.blog.interceptor
 
 import com.zzy.blog.service.TokenRefreshService
 import com.zzy.common.constants.AuthConstants
-import com.zzy.common.context.AuthContextHolder
-import com.zzy.common.context.AuthUser
 import com.zzy.common.exception.UnauthorizedException
 import com.zzy.common.util.JwtUtil
 import jakarta.servlet.http.Cookie
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
-import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
-import org.springframework.web.servlet.HandlerInterceptor
 
 /**
- * 认证拦截器（方案4：分布式锁）
+ * Blog 模块增强认证拦截器
  * 
- * ## 核心功能
- * - 验证 AccessToken
- * - 使用 RefreshToken 自动刷新（带分布式锁）
+ * 继承自 common 的基础认证拦截器，扩展了以下功能：
+ * - 使用 RefreshToken 自动刷新过期的 AccessToken
+ * - 分布式锁机制防止并发刷新
  * - 在响应头返回新Token
  * 
  * ## Token验证流程
@@ -45,112 +41,71 @@ import org.springframework.web.servlet.HandlerInterceptor
  */
 @Component
 class AuthInterceptor(
-    private val jwtUtil: JwtUtil,
+    jwtUtil: JwtUtil,
     private val tokenRefreshService: TokenRefreshService
-) : HandlerInterceptor {
+) : com.zzy.common.interceptor.BaseAuthInterceptor(jwtUtil) {
     
-    private val logger = LoggerFactory.getLogger(AuthInterceptor::class.java)
-    
-    override fun preHandle(
+    /**
+     * 覆盖父类的 Token 验证方法，增加自动刷新功能
+     */
+    override fun handleTokenValidation(
+        accessToken: String?,
         request: HttpServletRequest,
-        response: HttpServletResponse,
-        handler: Any
-    ): Boolean {
-        // 1. 从请求头获取 AccessToken
-        var accessToken = extractAccessToken(request)
-        
-        // 2. 验证 AccessToken（如果存在）
+        response: HttpServletResponse
+    ): String? {
+        // 1. 检查 AccessToken 是否有效
         val isAccessTokenValid = accessToken != null && jwtUtil.validateToken(accessToken)
         
-        // 3. 如果 AccessToken 不存在或已过期，尝试使用 RefreshToken 自动刷新
-        if (!isAccessTokenValid) {
-            logger.debug("AccessToken不存在或已过期，尝试使用RefreshToken自动刷新")
+        // 2. 如果有效，直接返回
+        if (isAccessTokenValid) {
+            return accessToken
+        }
+        
+        // 3. 如果无效或不存在，尝试使用 RefreshToken 自动刷新
+        logger.debug("AccessToken不存在或已过期，尝试使用RefreshToken自动刷新")
+        
+        // 从Cookie获取 RefreshToken
+        val refreshToken = extractRefreshTokenFromCookie(request)
+        
+        if (refreshToken != null) {
+            // 获取用户ID（用于分布式锁）
+            val userId = getUserIdFromRefreshToken(refreshToken, request)
             
-            // 从Cookie获取 RefreshToken
-            val refreshToken = extractRefreshTokenFromCookie(request)
-            
-            if (refreshToken != null) {
-                // 获取用户ID（用于分布式锁）
-                val userId = getUserIdFromRefreshToken(refreshToken, request)
+            if (userId != null) {
+                // 使用分布式锁刷新Token
+                val ipAddress = getClientIp(request)
+                val userAgent = request.getHeader("User-Agent")
                 
-                if (userId != null) {
-                    // 使用分布式锁刷新Token
-                    val ipAddress = getClientIp(request)
-                    val userAgent = request.getHeader("User-Agent")
+                val tokenPair = tokenRefreshService.refreshWithLock(
+                    userId = userId,
+                    oldRefreshToken = refreshToken,
+                    ipAddress = ipAddress,
+                    userAgent = userAgent
+                )
+                
+                if (tokenPair != null) {
+                    // 刷新成功
+                    // 将新的 AccessToken 放入响应头
+                    response.setHeader(AuthConstants.NEW_ACCESS_TOKEN_HEADER, tokenPair.accessToken)
                     
-                    val tokenPair = tokenRefreshService.refreshWithLock(
-                        userId = userId,
-                        oldRefreshToken = refreshToken,
-                        ipAddress = ipAddress,
-                        userAgent = userAgent
-                    )
-                    
-                    if (tokenPair != null) {
-                        // 刷新成功
-                        accessToken = tokenPair.accessToken
-                        
-                        // 将新的 AccessToken 放入响应头
-                        response.setHeader(AuthConstants.NEW_ACCESS_TOKEN_HEADER, tokenPair.accessToken)
-                        
-                        // 将新的 RefreshToken 放入Cookie（如果有轮转）
-                        if (tokenPair.refreshToken.isNotEmpty()) {
-                            setRefreshTokenCookie(response, tokenPair.refreshToken)
-                        }
-                        
-                        logger.info("✅ AccessToken已自动刷新: userId={}", userId)
-                    } else {
-                        logger.warn("❌ RefreshToken无效或已过期")
-                        throw UnauthorizedException("登录已过期，请重新登录")
+                    // 将新的 RefreshToken 放入Cookie（如果有轮转）
+                    if (tokenPair.refreshToken.isNotEmpty()) {
+                        setRefreshTokenCookie(response, tokenPair.refreshToken)
                     }
+                    
+                    logger.info("✅ AccessToken已自动刷新: userId={}", userId)
+                    return tokenPair.accessToken
                 } else {
-                    logger.warn("❌ 无法从RefreshToken获取用户ID")
+                    logger.warn("❌ RefreshToken无效或已过期")
                     throw UnauthorizedException("登录已过期，请重新登录")
                 }
             } else {
-                logger.warn("❌ 未找到RefreshToken")
+                logger.warn("❌ 无法从RefreshToken获取用户ID")
                 throw UnauthorizedException("登录已过期，请重新登录")
             }
-        }
-        
-        // 4. 最后检查：如果 accessToken 仍然为null，说明没有有效的认证信息
-        if (accessToken == null) {
-            logger.warn("无有效的认证信息: path={}", request.requestURI)
-            throw UnauthorizedException("请先登录")
-        }
-        
-        // 5. 解析令牌并设置上下文
-        val userId = jwtUtil.getUserIdFromToken(accessToken)
-        if (userId != null) {
-            AuthContextHolder.setAuthUser(
-                AuthUser(userId = userId)
-            )
-            logger.debug("设置用户上下文: userId={}", userId)
         } else {
-            throw UnauthorizedException("令牌中缺少用户信息")
-        }
-        
-        return true
-    }
-    
-    override fun afterCompletion(
-        request: HttpServletRequest,
-        response: HttpServletResponse,
-        handler: Any,
-        ex: Exception?
-    ) {
-        // 清除上下文
-        AuthContextHolder.clear()
-    }
-    
-    /**
-     * 从请求头中提取 AccessToken
-     */
-    private fun extractAccessToken(request: HttpServletRequest): String? {
-        val authHeader = request.getHeader("Authorization")
-        return if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            authHeader.substring(7)
-        } else {
-            null
+            logger.warn("❌ 未找到RefreshToken")
+            throw UnauthorizedException("登录已过期，请重新登录")
         }
     }
     

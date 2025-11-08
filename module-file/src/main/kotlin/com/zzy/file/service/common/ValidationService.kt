@@ -22,7 +22,7 @@ class ValidationService(
 ) {
     
     /**
-     * 验证并获取文件（包含权限检查）
+     * 验证并获取文件（包含权限检查）- 通过数字ID
      * 
      * @param fileId 文件ID
      * @param userId 用户ID
@@ -57,7 +57,35 @@ class ValidationService(
     }
     
     /**
-     * 验证并获取文件夹（包含权限检查）
+     * 验证并获取文件（包含权限检查）- 通过公开ID
+     * 
+     * @param publicId 文件公开ID
+     * @param userId 用户ID
+     * @param includeDeleted 是否包含已删除的文件
+     * @return 文件实体
+     * @throws BusinessException 文件不存在、无权限或已删除时抛出异常
+     */
+    fun validateAndGetFileByPublicId(
+        publicId: String, 
+        userId: Long, 
+        includeDeleted: Boolean = false
+    ): FileMetadata {
+        val file = fileMapper.selectByPublicId(publicId)
+            ?: throw BusinessException(404, "文件不存在")
+        
+        if (file.userId != userId) {
+            throw BusinessException(403, "无权访问该文件")
+        }
+        
+        if (!includeDeleted && file.deleted) {
+            throw BusinessException(404, "文件已被删除")
+        }
+        
+        return file
+    }
+    
+    /**
+     * 验证并获取文件夹（包含权限检查）- 通过数字ID
      * 
      * @param folderId 文件夹ID
      * @param userId 用户ID
@@ -80,12 +108,53 @@ class ValidationService(
     }
     
     /**
-     * 验证目标文件夹是否有效（可选）
+     * 验证并获取文件夹（包含权限检查）- 通过公开ID
+     * 
+     * @param publicId 文件夹公开ID
+     * @param userId 用户ID
+     * @return 文件夹实体
+     * @throws BusinessException 文件夹不存在、无权限或已删除时抛出异常
+     */
+    fun validateAndGetFolderByPublicId(publicId: String, userId: Long): FileFolder {
+        val folder = folderMapper.selectByPublicId(publicId)
+            ?: throw BusinessException(404, "文件夹不存在")
+        
+        if (folder.userId != userId) {
+            throw BusinessException(403, "无权访问该文件夹")
+        }
+        
+        if (folder.deleted) {
+            throw BusinessException(404, "文件夹已被删除")
+        }
+        
+        return folder
+    }
+    
+    /**
+     * 验证目标文件夹是否有效（可选）- 通过数字ID
      */
     fun validateTargetFolder(folderId: Long?, userId: Long) {
         folderId ?: return
         
         val folder = folderMapper.selectById(folderId)
+            ?: throw BusinessException(404, "目标文件夹不存在")
+        
+        if (folder.deleted) {
+            throw BusinessException(404, "目标文件夹已被删除")
+        }
+        
+        if (folder.userId != userId) {
+            throw BusinessException(403, "无权访问该文件夹")
+        }
+    }
+    
+    /**
+     * 验证目标文件夹是否有效（可选）- 通过公开ID
+     */
+    fun validateTargetFolderByPublicId(folderPublicId: String?, userId: Long) {
+        folderPublicId ?: return
+        
+        val folder = folderMapper.selectByPublicId(folderPublicId)
             ?: throw BusinessException(404, "目标文件夹不存在")
         
         if (folder.deleted) {

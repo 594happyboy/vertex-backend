@@ -5,6 +5,7 @@ import com.zzy.common.exception.BusinessException
 import com.zzy.common.util.RedisUtil
 import com.zzy.file.constants.FileConstants
 import com.zzy.file.util.FileSizeFormatter
+import com.zzy.file.util.NanoIdGenerator
 import com.zzy.file.dto.*
 import com.zzy.file.entity.FileFolder
 import com.zzy.file.mapper.FolderMapper
@@ -67,7 +68,7 @@ class FolderService(
         val totalSize = fileMapper.sumSizeByUserId(userId)
         
         val response = FolderTreeResponse(
-            rootFolders = rootFolders.map { FolderResponse.fromEntity(it) },
+            rootFolders = rootFolders.map { FolderTreeNode.fromEntity(it) },
             totalFolders = allFolders.size,
             totalFiles = totalFiles,
             totalSize = totalSize,
@@ -111,12 +112,12 @@ class FolderService(
     }
     
     /**
-     * 获取文件夹详情
+     * 获取文件夹详情（通过数字ID - 内部使用）
      */
-    fun getFolderInfo(folderId: Long, userId: Long): FolderResponse {
+    fun getFolderInfo(folderId: Long, userId: Long): FolderDetail {
         // 尝试从缓存获取
         val cacheKey = "${FileConstants.Cache.KEY_FOLDER_INFO}$folderId"
-        redisUtil.get(cacheKey, FolderResponse::class.java)?.let {
+        redisUtil.get(cacheKey, FolderDetail::class.java)?.let {
             logger.debug("从缓存获取文件夹信息: folderId={}", folderId)
             return it
         }
@@ -124,11 +125,31 @@ class FolderService(
         val folder = validationService.validateAndGetFolder(folderId, userId)
         fillFolderStatistics(folder)
         
-        val response = FolderResponse.fromEntity(folder)
+        // 获取父文件夹的公开ID
+        val parentPublicId = folder.parentId?.let { 
+            folderMapper.selectById(it)?.publicId 
+        }
+        
+        val response = FolderDetail.fromEntity(folder, parentPublicId)
         
         // 缓存结果
         redisUtil.set(cacheKey, response, FileConstants.Cache.EXPIRE_SHORT, TimeUnit.SECONDS)
         return response
+    }
+    
+    /**
+     * 获取文件夹详情（通过公开ID - 对外接口）
+     */
+    fun getFolderInfoByPublicId(publicId: String, userId: Long): FolderDetail {
+        val folder = validationService.validateAndGetFolderByPublicId(publicId, userId)
+        fillFolderStatistics(folder)
+        
+        // 获取父文件夹的公开ID
+        val parentPublicId = folder.parentId?.let { 
+            folderMapper.selectById(it)?.publicId 
+        }
+        
+        return FolderDetail.fromEntity(folder, parentPublicId)
     }
     
     /**
@@ -166,21 +187,29 @@ class FolderService(
      * 创建文件夹
      */
     @Transactional(rollbackFor = [Exception::class])
-    fun createFolder(userId: Long, request: CreateFolderRequest): FolderResponse {
+    fun createFolder(userId: Long, request: CreateFolderRequest): FolderDetail {
         // 验证文件夹名称
         if (request.name.isBlank()) {
             throw BusinessException(400, "文件夹名称不能为空")
         }
         
-        // 检查父文件夹是否存在
-        if (request.parentId != null) {
-            val parentFolder = folderMapper.selectById(request.parentId)
+        // 生成唯一的公开ID
+        val publicId = NanoIdGenerator.generateUnique({ id: String ->
+            folderMapper.existsByPublicId(id) > 0
+        })
+        
+        // 检查父文件夹是否存在（将 publicId 转换为内部 ID）
+        val parentFolderId: Long? = if (request.parentId != null) {
+            val parentFolder = folderMapper.selectByPublicId(request.parentId)
             if (parentFolder == null || parentFolder.deleted) {
                 throw BusinessException(404, "父文件夹不存在")
             }
             if (parentFolder.userId != userId) {
                 throw BusinessException(403, "无权在该文件夹下创建子文件夹")
             }
+            parentFolder.id
+        } else {
+            null
         }
         
         // 检查同名文件夹（手动过滤已删除的记录）
@@ -190,8 +219,8 @@ class FolderService(
                 .eq("name", request.name)
                 .eq("deleted", false)
                 .apply {
-                    if (request.parentId != null) {
-                        eq("parent_id", request.parentId)
+                    if (parentFolderId != null) {
+                        eq("parent_id", parentFolderId)
                     } else {
                         isNull("parent_id")
                     }
@@ -203,13 +232,14 @@ class FolderService(
         }
         
         // 获取下一个排序索引
-        val maxSortIndex = folderMapper.getMaxSortIndex(userId, request.parentId)
+        val maxSortIndex = folderMapper.getMaxSortIndex(userId, parentFolderId)
         
         // 创建文件夹
         val folder = FileFolder(
+            publicId = publicId,
             userId = userId,
             name = request.name,
-            parentId = request.parentId,
+            parentId = parentFolderId,  // 使用内部 Long ID
             sortIndex = maxSortIndex + 1,
             color = request.color,
             description = request.description,
@@ -222,16 +252,17 @@ class FolderService(
         // 清除缓存
         clearFolderCache(userId)
         
-        logger.info("创建文件夹成功: userId={}, folderName={}, folderId={}", userId, request.name, folder.id)
+        logger.info("创建文件夹成功: userId={}, folderName={}, publicId={}, folderId={}", 
+            userId, request.name, publicId, folder.id)
         
-        return FolderResponse.fromEntity(folder)
+        return FolderDetail.fromEntity(folder, request.parentId)
     }
     
     /**
-     * 更新文件夹
+     * 更新文件夹（通过数字ID - 内部使用）
      */
     @Transactional(rollbackFor = [Exception::class])
-    fun updateFolder(folderId: Long, userId: Long, request: UpdateFolderRequest): FolderResponse {
+    fun updateFolder(folderId: Long, userId: Long, request: UpdateFolderRequest): FolderDetail {
         val folder = validationService.validateAndGetFolder(folderId, userId)
         
         // 更新字段
@@ -277,27 +308,27 @@ class FolderService(
             updated = true
         }
         
-        // 处理移动到其他父文件夹
-        if (request.parentId != folder.parentId) {
-            // 防止循环引用
-            if (request.parentId != null) {
+        // 处理移动到其他父文件夹（将 publicId 转换为内部 ID）
+        request.parentId?.let { parentPublicId ->
+            val targetParentFolder = folderMapper.selectByPublicId(parentPublicId)
+            if (targetParentFolder == null || targetParentFolder.deleted) {
+                throw BusinessException(404, "目标父文件夹不存在")
+            }
+            if (targetParentFolder.userId != userId) {
+                throw BusinessException(403, "无权移动到该文件夹")
+            }
+            
+            val targetParentId = targetParentFolder.id
+            if (targetParentId != folder.parentId) {
+                // 防止循环引用
                 val descendantIds = folderMapper.getDescendantIds(folderId)
-                if (descendantIds.contains(request.parentId)) {
+                if (descendantIds.contains(targetParentId)) {
                     throw BusinessException(400, "不能将文件夹移动到其子文件夹中")
                 }
                 
-                // 检查目标父文件夹是否存在
-                val parentFolder = folderMapper.selectById(request.parentId)
-                if (parentFolder == null || parentFolder.deleted) {
-                    throw BusinessException(404, "目标父文件夹不存在")
-                }
-                if (parentFolder.userId != userId) {
-                    throw BusinessException(403, "无权移动到该文件夹")
-                }
+                folder.parentId = targetParentId
+                updated = true
             }
-            
-            folder.parentId = request.parentId
-            updated = true
         }
         
         if (updated) {
@@ -311,11 +342,107 @@ class FolderService(
             logger.info("更新文件夹成功: folderId={}, folderName={}", folderId, folder.name)
         }
         
-        return FolderResponse.fromEntity(folder)
+        // 获取父文件夹的公开ID
+        val parentPublicId = folder.parentId?.let { 
+            folderMapper.selectById(it)?.publicId 
+        }
+        
+        return FolderDetail.fromEntity(folder, parentPublicId)
     }
     
     /**
-     * 删除文件夹（软删除）
+     * 更新文件夹（通过公开ID - 对外接口）
+     */
+    @Transactional(rollbackFor = [Exception::class])
+    fun updateFolderByPublicId(publicId: String, userId: Long, request: UpdateFolderRequest): FolderDetail {
+        val folder = validationService.validateAndGetFolderByPublicId(publicId, userId)
+        val folderId = folder.id!!
+        var updated = false
+        
+        if (request.name != null && request.name != folder.name) {
+            // 检查同名
+            val existingFolder = folderMapper.selectOne(
+                QueryWrapper<FileFolder>()
+                    .eq("user_id", userId)
+                    .eq("name", request.name)
+                    .eq("deleted", false)
+                    .apply {
+                        if (folder.parentId != null) {
+                            eq("parent_id", folder.parentId)
+                        } else {
+                            isNull("parent_id")
+                        }
+                    }
+                    .ne("id", folderId)
+            )
+            
+            if (existingFolder != null) {
+                throw BusinessException(400, "该位置已存在同名文件夹")
+            }
+            
+            folder.name = request.name
+            updated = true
+        }
+        
+        if (request.color != null && request.color != folder.color) {
+            folder.color = request.color
+            updated = true
+        }
+        
+        if (request.description != null && request.description != folder.description) {
+            folder.description = request.description
+            updated = true
+        }
+        
+        if (request.sortIndex != null && request.sortIndex != folder.sortIndex) {
+            folder.sortIndex = request.sortIndex
+            updated = true
+        }
+        
+        // 处理移动到其他父文件夹
+        request.parentId?.let { parentPublicId ->
+            val targetParentFolder = folderMapper.selectByPublicId(parentPublicId)
+            if (targetParentFolder == null || targetParentFolder.deleted) {
+                throw BusinessException(404, "目标父文件夹不存在")
+            }
+            if (targetParentFolder.userId != userId) {
+                throw BusinessException(403, "无权移动到该文件夹")
+            }
+            
+            val targetParentId = targetParentFolder.id
+            if (targetParentId != folder.parentId) {
+                // 防止循环引用
+                val descendantIds = folderMapper.getDescendantIds(folderId)
+                if (descendantIds.contains(targetParentId)) {
+                    throw BusinessException(400, "不能将文件夹移动到其子文件夹中")
+                }
+                
+                folder.parentId = targetParentId
+                updated = true
+            }
+        }
+        
+        if (updated) {
+            folder.updatedAt = LocalDateTime.now()
+            folderMapper.updateById(folder)
+            
+            // 清除缓存
+            clearFolderCache(userId)
+            clearFolderInfoCache(folderId)
+            
+            logger.info("更新文件夹成功: publicId={}, folderName={}", publicId, folder.name)
+        }
+        
+        // 获取父文件夹的公开ID
+        val parentPublicId = folder.parentId?.let { 
+            folderMapper.selectById(it)?.publicId 
+        }
+        
+        return FolderDetail.fromEntity(folder, parentPublicId)
+    }
+    
+    /**
+     * 删除文件夹（软删除 - 通过数字ID - 内部使用）
      */
     @Transactional(rollbackFor = [Exception::class])
     fun deleteFolder(folderId: Long, userId: Long, recursive: Boolean = false): Boolean {
@@ -332,16 +459,17 @@ class FolderService(
         // 递归删除子文件夹和文件
         if (recursive) {
             val descendantIds = folderMapper.getDescendantIds(folderId)
+            val allFolderIds = (descendantIds + folderId).toList()  // 包含当前文件夹
             
             // 批量软删除所有子文件夹
             if (descendantIds.isNotEmpty()) {
                 folderMapper.batchSoftDelete(descendantIds)
             }
             
-            // 软删除文件夹中的所有文件（手动过滤已删除的记录）
+            // 软删除所有相关文件夹中的文件（包括当前文件夹和所有子文件夹）
             val files = fileMapper.selectList(
                 QueryWrapper<com.zzy.file.entity.FileMetadata>()
-                    .`in`("folder_id", descendantIds)
+                    .`in`("folder_id", allFolderIds)
                     .eq("deleted", false)
             )
             
@@ -364,7 +492,57 @@ class FolderService(
     }
     
     /**
-     * 获取文件夹路径（面包屑导航）
+     * 删除文件夹（软删除 - 通过公开ID - 对外接口）
+     */
+    @Transactional(rollbackFor = [Exception::class])
+    fun deleteFolderByPublicId(publicId: String, userId: Long, recursive: Boolean = false): Boolean {
+        val folder = validationService.validateAndGetFolderByPublicId(publicId, userId)
+        val folderId = folder.id!!
+        
+        // 检查是否有子文件夹或文件
+        val hasSubFolders = folderMapper.countSubFoldersByFolderId(folderId) > 0
+        val hasFiles = folderMapper.countFilesByFolderId(folderId) > 0
+        
+        if (!recursive && (hasSubFolders || hasFiles)) {
+            throw BusinessException(400, "文件夹不为空，无法删除。请先删除文件夹中的内容或使用递归删除")
+        }
+        
+        // 递归删除子文件夹和文件
+        if (recursive) {
+            val descendantIds = folderMapper.getDescendantIds(folderId)
+            val allFolderIds = (descendantIds + folderId).toList()  // 包含当前文件夹
+            
+            // 批量软删除所有子文件夹
+            if (descendantIds.isNotEmpty()) {
+                folderMapper.batchSoftDelete(descendantIds)
+            }
+            
+            // 软删除所有相关文件夹中的文件（包括当前文件夹和所有子文件夹）
+            val files = fileMapper.selectList(
+                QueryWrapper<com.zzy.file.entity.FileMetadata>()
+                    .`in`("folder_id", allFolderIds)
+                    .eq("deleted", false)
+            )
+            
+            if (files.isNotEmpty()) {
+                fileMapper.batchSoftDelete(files.map { it.id!! })
+            }
+        }
+        
+        // 软删除文件夹
+        folderMapper.softDelete(folderId)
+        
+        // 清除缓存
+        clearFolderCache(userId)
+        clearFolderInfoCache(folderId)
+        
+        logger.info("删除文件夹成功: publicId={}, folderName={}, recursive={}", publicId, folder.name, recursive)
+        
+        return true
+    }
+    
+    /**
+     * 获取文件夹路径（面包屑导航 - 通过数字ID - 内部使用）
      */
     fun getFolderPath(folderId: Long?, userId: Long): FolderPathResponse {
         folderId ?: return FolderPathResponse(path = emptyList())
@@ -384,18 +562,38 @@ class FolderService(
     }
     
     /**
+     * 获取文件夹路径（面包屑导航 - 通过公开ID - 对外接口）
+     */
+    fun getFolderPathByPublicId(publicId: String?, userId: Long): FolderPathResponse {
+        publicId ?: return FolderPathResponse(path = emptyList())
+        
+        val folder = validationService.validateAndGetFolderByPublicId(publicId, userId)
+        val folderId = folder.id!!
+        
+        val path = pathBuilderService.buildFolderPath(folderId, userId)
+        return FolderPathResponse(path = path)
+    }
+    
+    /**
      * 批量排序文件夹
      */
     @Transactional(rollbackFor = [Exception::class])
     fun batchSortFolders(userId: Long, request: BatchSortFoldersRequest): Boolean {
+        // 将 publicId 列表转换为内部 ID 列表
+        val publicIds = request.items.map { it.id }
+        val folders = folderMapper.selectBatchByPublicIds(publicIds)
+        
         // 验证所有文件夹的归属
-        val folderIds = request.items.map { it.id }
-        val folders = folderMapper.selectBatchIds(folderIds)
         validationService.validateFolderOwnership(folders, userId)
         
-        // 批量更新排序索引
-        val sortItems = request.items.map { 
-            com.zzy.file.mapper.FolderSortItem(id = it.id, sortIndex = it.sortIndex)
+        // 创建 publicId 到 内部 ID 的映射
+        val publicIdToInternalId = folders.associate { it.publicId!! to it.id!! }
+        
+        // 批量更新排序索引（将 publicId 转换为内部 ID）
+        val sortItems = request.items.mapNotNull { item ->
+            publicIdToInternalId[item.id]?.let { internalId ->
+                com.zzy.file.mapper.FolderSortItem(id = internalId, sortIndex = item.sortIndex)
+            }
         }
         
         folderMapper.batchUpdateSortIndex(sortItems)

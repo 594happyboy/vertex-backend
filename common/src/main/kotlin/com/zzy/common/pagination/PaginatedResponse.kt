@@ -23,7 +23,7 @@ data class PaginatedResponse<T>(
                     limit = limit,
                     nextCursor = null,
                     hasMore = false,
-                    total = 0
+                    stats = PaginationStats(totalItems = 0)
                 )
             )
         }
@@ -36,7 +36,7 @@ data class PaginatedResponse<T>(
             limit: Int,
             nextCursor: String?,
             hasMore: Boolean,
-            total: Long? = null
+            stats: PaginationStats? = null
         ): PaginatedResponse<T> {
             return PaginatedResponse(
                 items = items,
@@ -44,7 +44,7 @@ data class PaginatedResponse<T>(
                     limit = limit,
                     nextCursor = nextCursor,
                     hasMore = hasMore,
-                    total = total
+                    stats = stats
                 )
             )
         }
@@ -64,7 +64,21 @@ data class PaginationInfo(
     /** 是否有更多数据 */
     val hasMore: Boolean,
     
-    /** 总数（可选，统计代价高时可省略） */
-    val total: Long? = null
+    /** 统计信息（可选） */
+    val stats: PaginationStats? = null
+)
+
+/**
+ * 分页统计信息
+ */
+data class PaginationStats(
+    /** 总项目数 */
+    val totalItems: Long = 0,
+    
+    /** 文件夹总数（用于混合类型列表） */
+    val totalFolders: Long = 0,
+    
+    /** 文件总数（用于混合类型列表） */
+    val totalFiles: Long = 0
 )
 

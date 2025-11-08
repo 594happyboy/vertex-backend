@@ -11,7 +11,7 @@ set SERVER_IP=47.109.191.242
 set SERVER_USER=root
 set SERVER_PATH=/opt/vertex-backend
 
-goto main_menu
+goto main_menu_level1
 
 :build_and_upload
 echo.
@@ -29,7 +29,7 @@ if errorlevel 1 (
     echo [ERROR] Build failed
     echo.
     pause
-    goto main_menu
+    goto main_menu_level1
 )
 echo [DONE] Build success
 echo.
@@ -38,7 +38,7 @@ if not exist "app-bootstrap\build\libs\vertex-backend.jar" (
     echo [ERROR] JAR file not found
     echo.
     pause
-    goto main_menu
+    goto main_menu_level1
 )
 
 echo [2/4] Checking files...
@@ -62,7 +62,7 @@ if "!FILES_OK!"=="0" (
     echo [ERROR] Missing required files
     echo.
     pause
-    goto main_menu
+    goto main_menu_level1
 )
 echo [DONE] All files checked
 echo.
@@ -78,7 +78,7 @@ if not exist "%TEMP_DIR%" (
     echo [ERROR] Failed to create temp directory
     echo.
     pause
-    goto main_menu
+    goto main_menu_level1
 )
 
 echo Copying files to temp directory...
@@ -199,9 +199,12 @@ echo [DONE] All files uploaded successfully
 echo ========================================
 echo.
 pause
-goto main_menu
+goto main_menu_level1
 
 :main_menu
+goto main_menu_level1
+
+:main_menu_level1
 cls
 echo.
 echo ========================================
@@ -211,42 +214,121 @@ echo.
 echo Server: %SERVER_USER%@%SERVER_IP%
 echo Deploy path: %SERVER_PATH%
 echo.
-echo [Deployment and Update]
-echo 1. Build and Upload JAR       - Build locally and upload to server
-echo 2. Update Backend Only        - Rebuild backend and start [MOST USED]
-echo 3. Rebuild All Services       - Rebuild all and start (MySQL/Redis/MinIO/Backend)
+echo ========================================
+echo Main Menu
+echo ========================================
 echo.
-echo [Monitoring]
-echo 4. View Logs                  - View real-time application logs
-echo 5. Check Status               - Check service status and resources
+echo 1. Deployment and Update       - Build, upload and rebuild services
+echo 2. Monitoring                  - View logs and check status
+echo 3. Control                     - Restart and stop services
+echo 4. Manual Guide                - Show manual commands
+echo 5. Exit
 echo.
-echo [Control]
-echo 6. Restart Backend Only       - Quick restart backend (no rebuild, for stuck app)
-echo 7. Restart All Services       - Restart all services (no rebuild)
-echo 8. Stop All Services          - Stop all running services
-echo 9. Manual Guide               - Show manual commands
-echo 0. Exit
-echo.
-set /p CHOICE="Enter option (0-9): "
+set /p CHOICE="Enter option (1-5): "
 
-if "%CHOICE%"=="" goto main_menu
-if "%CHOICE%"=="1" goto build_and_upload
-if "%CHOICE%"=="2" goto option_update_backend
-if "%CHOICE%"=="3" goto option_rebuild_all
-if "%CHOICE%"=="4" goto option_logs
-if "%CHOICE%"=="5" goto option_status
-if "%CHOICE%"=="6" goto option_restart_backend
-if "%CHOICE%"=="7" goto option_restart_all
-if "%CHOICE%"=="8" goto option_stop
-if "%CHOICE%"=="9" goto option_manual
-if "%CHOICE%"=="0" goto end_script
+if "%CHOICE%"=="" goto main_menu_level1
+if "%CHOICE%"=="1" goto menu_deployment
+if "%CHOICE%"=="2" goto menu_monitoring
+if "%CHOICE%"=="3" goto menu_control
+if "%CHOICE%"=="4" goto option_manual
+if "%CHOICE%"=="5" goto end_script
 
 cls
 echo.
 echo [ERROR] Invalid option
 echo.
 timeout /t 2 >nul
-goto main_menu
+goto main_menu_level1
+
+:menu_deployment
+cls
+echo.
+echo ========================================
+echo Deployment and Update
+echo ========================================
+echo.
+echo Server: %SERVER_USER%@%SERVER_IP%
+echo Deploy path: %SERVER_PATH%
+echo.
+echo 1. Build and Upload JAR                 - Build locally and upload to server
+echo 2. Update Backend Only                  - Rebuild backend and start [MOST USED]
+echo 3. Rebuild All Services                 - Rebuild all and start (keeps data)
+echo 4. Rebuild All Services (Delete All Data) - Full reset with data wipe
+echo 0. Return to Main Menu
+echo.
+set /p CHOICE="Enter option (0-4): "
+
+if "%CHOICE%"=="" goto menu_deployment
+if "%CHOICE%"=="1" goto build_and_upload
+if "%CHOICE%"=="2" goto option_update_backend
+if "%CHOICE%"=="3" goto option_rebuild_all
+if "%CHOICE%"=="4" goto option_rebuild_all_delete_volumes
+if "%CHOICE%"=="0" goto main_menu_level1
+
+cls
+echo.
+echo [ERROR] Invalid option
+echo.
+timeout /t 2 >nul
+goto menu_deployment
+
+:menu_monitoring
+cls
+echo.
+echo ========================================
+echo Monitoring
+echo ========================================
+echo.
+echo Server: %SERVER_USER%@%SERVER_IP%
+echo Deploy path: %SERVER_PATH%
+echo.
+echo 1. View Logs                  - View real-time application logs
+echo 2. Check Status               - Check service status and resources
+echo 0. Return to Main Menu
+echo.
+set /p CHOICE="Enter option (0-2): "
+
+if "%CHOICE%"=="" goto menu_monitoring
+if "%CHOICE%"=="1" goto option_logs
+if "%CHOICE%"=="2" goto option_status
+if "%CHOICE%"=="0" goto main_menu_level1
+
+cls
+echo.
+echo [ERROR] Invalid option
+echo.
+timeout /t 2 >nul
+goto menu_monitoring
+
+:menu_control
+cls
+echo.
+echo ========================================
+echo Control
+echo ========================================
+echo.
+echo Server: %SERVER_USER%@%SERVER_IP%
+echo Deploy path: %SERVER_PATH%
+echo.
+echo 1. Restart Backend Only       - Quick restart backend (no rebuild)
+echo 2. Restart All Services       - Restart all services (no rebuild)
+echo 3. Stop All Services          - Stop all running services
+echo 0. Return to Main Menu
+echo.
+set /p CHOICE="Enter option (0-3): "
+
+if "%CHOICE%"=="" goto menu_control
+if "%CHOICE%"=="1" goto option_restart_backend
+if "%CHOICE%"=="2" goto option_restart_all
+if "%CHOICE%"=="3" goto option_stop
+if "%CHOICE%"=="0" goto main_menu_level1
+
+cls
+echo.
+echo [ERROR] Invalid option
+echo.
+timeout /t 2 >nul
+goto menu_control
 
 :option_update_backend
 cls
@@ -315,6 +397,62 @@ if errorlevel 1 (
     echo 3. Check Docker service is running
     echo 4. Try manual rebuild: ssh to server and run:
     echo    cd %SERVER_PATH% ^&^& docker compose down ^&^& docker compose up -d --build
+)
+goto after_operation
+
+:option_rebuild_all_delete_volumes
+cls
+echo.
+echo ========================================
+echo Rebuild All Services (Delete All Data)
+echo ========================================
+echo.
+echo [SCOPE] ALL services (MySQL + Redis + MinIO + Backend)
+echo [DANGER] This will DELETE ALL VOLUMES AND DATA
+echo [WARNING] This is a COMPLETE RESET - all data will be lost
+echo [INFO] Will automatically START all services after rebuild
+echo [IMPACT] ALL data in MySQL, Redis, and MinIO will be PERMANENTLY DELETED
+echo [USE CASE] Use only when you want a fresh start or to clear all data
+echo.
+echo.
+echo ^^!^^!^^! WARNING ^^!^^!^^!
+echo This will PERMANENTLY DELETE:
+echo   - All MySQL database data
+echo   - All Redis cache data
+echo   - All MinIO stored files
+echo   - All Docker volumes
+echo.
+echo This action CANNOT BE UNDONE.
+echo.
+set /p CONFIRM="Type 'DELETE' (in uppercase) to confirm: "
+if not "%CONFIRM%"=="DELETE" (
+    echo.
+    echo [CANCELLED] Operation cancelled - input did not match 'DELETE'
+    goto after_operation
+)
+echo.
+set /p CONFIRM2="Are you absolutely sure? (y/n): "
+if /i not "%CONFIRM2%"=="y" (
+    echo.
+    echo Operation cancelled
+    goto after_operation
+)
+echo.
+echo NOTE: Enter password ONCE for all operations
+echo.
+echo Removing all services and volumes...
+echo.
+ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose down -v && echo && echo 'All volumes deleted.' && echo 'Rebuilding all services...' && echo && docker compose up -d --build --force-recreate && echo && docker compose ps"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Failed to rebuild and start services
+    echo.
+    echo Troubleshooting:
+    echo 1. Check if all required files exist on server
+    echo 2. Check if docker-compose.yml is valid
+    echo 3. Check Docker service is running
+    echo 4. Try manual rebuild: ssh to server and run:
+    echo    cd %SERVER_PATH% ^&^& docker compose down -v ^&^& docker compose up -d --build
 )
 goto after_operation
 
@@ -440,6 +578,7 @@ echo.
 echo Common commands:
 echo   Update backend only:     docker compose up -d --build --force-recreate --no-deps vertex-backend
 echo   Rebuild all services:    docker compose down ^&^& docker compose up -d --build --force-recreate
+echo   Full reset (delete data): docker compose down -v ^&^& docker compose up -d --build --force-recreate
 echo   Restart backend only:    docker compose restart vertex-backend
 echo   Restart all services:    docker compose restart
 echo   View logs:               docker compose logs -f vertex-backend
@@ -447,19 +586,24 @@ echo   Check status:            docker compose ps
 echo   Stop all services:       docker compose down
 echo.
 echo Common workflow:
-echo   1. Upload new JAR:       Use Option 1 in this script
-echo   2. Update backend:       Use Option 2 in this script
-echo   3. View logs:            Use Option 4 in this script
+echo   1. Upload new JAR:       Main Menu ^> 1 ^> 1
+echo   2. Update backend:       Main Menu ^> 1 ^> 2
+echo   3. View logs:            Main Menu ^> 2 ^> 1
 echo.
 echo Rebuild all workflow:
-echo   1. Upload new JAR:       Use Option 1 in this script
-echo   2. Rebuild all:          Use Option 3 in this script (includes dependencies)
-echo   3. Check status:         Use Option 5 in this script
+echo   1. Upload new JAR:       Main Menu ^> 1 ^> 1
+echo   2. Rebuild all:          Main Menu ^> 1 ^> 3 (keeps data)
+echo   3. Check status:         Main Menu ^> 2 ^> 2
+echo.
+echo Full reset workflow:
+echo   1. Upload new JAR:       Main Menu ^> 1 ^> 1
+echo   2. Full reset:           Main Menu ^> 1 ^> 4 (DELETES ALL DATA)
+echo   3. Check status:         Main Menu ^> 2 ^> 2
 echo.
 echo Troubleshooting:
-echo   Backend stuck:           Use Option 6 (restart backend only)
-echo   All services stuck:      Use Option 7 (restart all)
-echo   Config changes:          Use Option 2 (backend) or Option 3 (all)
+echo   Backend stuck:           Main Menu ^> 3 ^> 1 (restart backend only)
+echo   All services stuck:      Main Menu ^> 3 ^> 2 (restart all)
+echo   Config changes:          Main Menu ^> 1 ^> 2 (backend) or ^> 1 ^> 3 (all)
 echo.
 goto after_operation
 
@@ -468,7 +612,7 @@ echo.
 echo ----------------------------------------
 set /p CONTINUE="Continue other operations? (y/n): "
 if /i "%CONTINUE%"=="y" (
-    goto main_menu
+    goto main_menu_level1
 )
 goto end_script
 
@@ -487,7 +631,7 @@ echo [ERROR] Failed to copy files
 rd /s /q "%TEMP_DIR%" 2>nul
 echo.
 pause
-goto main_menu
+goto main_menu_level1
 
 :upload_error
 cls
@@ -506,5 +650,5 @@ echo    Or install Git for Windows
 echo.
 echo Press any key to return...
 pause >nul
-goto main_menu
+goto main_menu_level1
 

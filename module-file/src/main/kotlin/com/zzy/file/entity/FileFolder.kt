@@ -11,9 +11,12 @@ import java.time.LocalDateTime
  */
 @TableName("file_folders")
 data class FileFolder(
-    /** 文件夹ID */
+    /** 文件夹ID（内部数据库主键） */
     @TableId(type = IdType.AUTO)
     override var id: Long? = null,
+    
+    /** 公开ID（对外暴露的唯一标识符） */
+    var publicId: String? = null,
     
     /** 用户ID */
     var userId: Long,

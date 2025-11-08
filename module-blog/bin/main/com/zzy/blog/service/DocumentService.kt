@@ -12,6 +12,7 @@ import com.zzy.blog.mapper.DocumentMapper
 import com.zzy.file.service.FileService
 import com.zzy.file.service.FileReferenceService
 import com.zzy.file.entity.ReferenceType
+import com.zzy.file.mapper.FileMapper
 import com.zzy.common.pagination.*
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -30,7 +31,8 @@ class DocumentService(
     private val fileService: FileService,
     private val folderService: com.zzy.file.service.FolderService,
     private val fileReferenceService: FileReferenceService,
-    private val asyncFileReferenceService: AsyncFileReferenceService
+    private val asyncFileReferenceService: AsyncFileReferenceService,
+    private val fileMapper: FileMapper
 ) {
     
     private val logger = LoggerFactory.getLogger(DocumentService::class.java)
@@ -195,13 +197,17 @@ class DocumentService(
                 description = "知识库文档：${request.title}"
         )
         
-        // 2. 创建文档记录
+        // 2. 通过公开ID查询文件元数据获取内部ID
+        val fileMetadata = fileMapper.selectByPublicId(fileResponse.id)
+            ?: throw com.zzy.common.exception.BusinessException(500, "文件上传成功但查询失败")
+        
+        // 3. 创建文档记录
         val document = Document(
             userId = userId,
             groupId = request.groupId,
             title = request.title,
             type = extension,
-            fileId = fileResponse.id,
+            fileId = fileMetadata.id,
             filePath = fileResponse.downloadUrl,
             sortIndex = 0
         )
@@ -209,9 +215,9 @@ class DocumentService(
         documentMapper.insert(document)
         logger.info("创建文档: id={}, title={}, fileId={}", document.id, document.title, document.fileId)
         
-        // 3. 添加文件引用
+        // 4. 添加文件引用
         fileReferenceService.addReference(
-            fileId = fileResponse.id,
+            fileId = fileMetadata.id!!,
             referenceType = ReferenceType.DOCUMENT.value,
             referenceId = document.id!!
         )
@@ -318,9 +324,13 @@ class DocumentService(
                 description = "知识库文档：${document.title}"
         )
         
+        // 通过公开ID查询文件元数据获取内部ID
+        val fileMetadata = fileMapper.selectByPublicId(fileResponse.id)
+            ?: throw com.zzy.common.exception.BusinessException(500, "文件上传成功但查询失败")
+        
         // 更新文档记录
         document.type = extension
-        document.fileId = fileResponse.id
+        document.fileId = fileMetadata.id
         document.filePath = fileResponse.downloadUrl
         
         documentMapper.updateById(document)
@@ -328,7 +338,7 @@ class DocumentService(
         
         // 添加新文件引用
         fileReferenceService.addReference(
-            fileId = fileResponse.id,
+            fileId = fileMetadata.id!!,
             referenceType = ReferenceType.DOCUMENT.value,
             referenceId = id
         )

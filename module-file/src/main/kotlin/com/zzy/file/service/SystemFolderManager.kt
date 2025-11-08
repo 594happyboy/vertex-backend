@@ -1,9 +1,13 @@
 package com.zzy.file.service
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
 import org.springframework.stereotype.Service
 import org.springframework.cache.annotation.Cacheable
 import org.springframework.cache.annotation.CacheEvict
 import com.zzy.file.dto.CreateFolderRequest
+import com.zzy.file.entity.FileFolder
+import com.zzy.file.mapper.FolderMapper
+import com.zzy.common.exception.BusinessException
 import org.slf4j.LoggerFactory
 
 /**
@@ -19,7 +23,8 @@ import org.slf4j.LoggerFactory
  */
 @Service
 class SystemFolderManager(
-    private val folderService: FolderService
+    private val folderService: FolderService,
+    private val folderMapper: FolderMapper
 ) {
     private val logger = LoggerFactory.getLogger(SystemFolderManager::class.java)
     
@@ -63,13 +68,18 @@ class SystemFolderManager(
     fun getOrCreateSystemFolder(userId: Long, type: SystemFolderType): Long {
         logger.debug("获取或创建系统文件夹: userId={}, type={}", userId, type.name)
         
-        val folderTree = folderService.getFolderTree(userId, includeStats = false)
-        
         // 1. 获取或创建"系统"根文件夹
-        var systemFolder = folderTree.rootFolders.find { it.name == SYSTEM_ROOT }
+        var systemFolder = folderMapper.selectOne(
+            QueryWrapper<FileFolder>()
+                .eq("user_id", userId)
+                .eq("name", SYSTEM_ROOT)
+                .isNull("parent_id")
+                .eq("deleted", false)
+        )
+        
         if (systemFolder == null) {
             logger.info("创建系统根文件夹: userId={}", userId)
-            systemFolder = folderService.createFolder(
+            folderService.createFolder(
                 userId = userId,
                 request = CreateFolderRequest(
                     name = SYSTEM_ROOT,
@@ -78,28 +88,50 @@ class SystemFolderManager(
                     description = FOLDER_DESCRIPTIONS[SYSTEM_ROOT]
                 )
             )
+            // 重新查询获取ID
+            systemFolder = folderMapper.selectOne(
+                QueryWrapper<FileFolder>()
+                    .eq("user_id", userId)
+                    .eq("name", SYSTEM_ROOT)
+                    .isNull("parent_id")
+                    .eq("deleted", false)
+            ) ?: throw BusinessException(500, "创建系统根文件夹失败")
         }
         
         // 2. 获取或创建指定类型的子文件夹
         val targetFolderName = type.folderName
-        var targetFolder = systemFolder.children?.find { it.name == targetFolderName }
+        var targetFolder = folderMapper.selectOne(
+            QueryWrapper<FileFolder>()
+                .eq("user_id", userId)
+                .eq("name", targetFolderName)
+                .eq("parent_id", systemFolder.id)
+                .eq("deleted", false)
+        )
         
         if (targetFolder == null) {
             logger.info("创建系统子文件夹: userId={}, type={}, parentId={}", 
                 userId, targetFolderName, systemFolder.id)
-            targetFolder = folderService.createFolder(
+            folderService.createFolder(
                 userId = userId,
                 request = CreateFolderRequest(
                     name = targetFolderName,
-                    parentId = systemFolder.id,
+                    parentId = systemFolder.publicId,  // 使用公开ID
                     color = getColorForFolderType(type),
                     description = FOLDER_DESCRIPTIONS[targetFolderName]
                 )
             )
+            // 重新查询获取ID
+            targetFolder = folderMapper.selectOne(
+                QueryWrapper<FileFolder>()
+                    .eq("user_id", userId)
+                    .eq("name", targetFolderName)
+                    .eq("parent_id", systemFolder.id)
+                    .eq("deleted", false)
+            ) ?: throw BusinessException(500, "创建系统子文件夹失败")
         }
         
         logger.debug("系统文件夹ID: {}", targetFolder.id)
-        return targetFolder.id
+        return targetFolder.id!!
     }
     
     /**

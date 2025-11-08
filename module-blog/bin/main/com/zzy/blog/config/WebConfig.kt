@@ -17,13 +17,19 @@ class WebConfig(
     
     override fun addInterceptors(registry: InterceptorRegistry) {
         registry.addInterceptor(authInterceptor)
-            .addPathPatterns("/api/**")
+            .addPathPatterns(
+                "/api/auth/**",           // 认证接口
+                "/api/documents/**",      // 文档接口
+                "/api/user/**",           // 用户接口
+                "/api/directory-tree/**", // 目录树接口
+                "/api/sort/**",           // 排序接口
+                "/api/groups/**"          // 分组接口
+            )
             .excludePathPatterns(
-                "/api/auth/login",          // 登录接口
-                "/api/files/*/download",    // 文件下载接口（公开访问）
-                "/doc.html",                // Swagger文档
-                "/swagger-ui/**",           // Swagger UI
-                "/v3/api-docs/**",          // OpenAPI文档
+                "/api/auth/login",        // 登录接口
+                "/doc.html",              // Swagger文档
+                "/swagger-ui/**",         // Swagger UI
+                "/v3/api-docs/**",        // OpenAPI文档
                 "/swagger-resources/**",
                 "/webjars/**"
             )

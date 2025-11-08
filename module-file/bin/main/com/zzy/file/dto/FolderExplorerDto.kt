@@ -31,31 +31,7 @@ data class FolderChildrenResponse(
     val files: List<FileResource>,
     
     /** 分页信息 */
-    val pagination: ChildrenPaginationInfo
-)
-
-/** 目录内容分页信息 */
-data class ChildrenPaginationInfo(
-    /** 每页大小 */
-    val limit: Int,
-    
-    /** 下一页游标 */
-    val nextCursor: String?,
-    
-    /** 是否有更多数据 */
-    val hasMore: Boolean,
-    
-    /** 统计信息 */
-    val stats: ChildrenStats
-)
-
-/** 目录内容统计信息 */
-data class ChildrenStats(
-    /** 文件夹总数 */
-    val totalFolders: Long,
-    
-    /** 文件总数 */
-    val totalFiles: Long
+    val pagination: com.zzy.common.pagination.PaginationInfo
 )
 
 /** 目录子项查询请求参数 */
@@ -101,8 +77,8 @@ data class FolderStatistics(
 /** 批量操作请求DTO */
 data class BatchOperationRequest(
     val action: BatchAction,         // move | delete | restore | tag
-    val fileIds: List<Long>,
-    val targetFolderId: Long? = null, // move时必需
+    val fileIds: List<String>,        // 文件公开ID列表
+    val targetFolderId: String? = null, // 目标文件夹公开ID，move时必需
     val tags: List<String>? = null    // tag时必需
 )
 

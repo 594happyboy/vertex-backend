@@ -66,10 +66,10 @@ class DocumentController(
     @PostMapping(consumes = ["multipart/form-data"])
     fun createDocument(
         @Parameter(description = "文档标题", required = true)
-        @RequestParam("title") title: String,
+        @RequestPart("title") title: String,
         
         @Parameter(description = "分组ID（可选）")
-        @RequestParam("groupId", required = false) groupId: Long?,
+        @RequestPart("groupId", required = false) groupId: Long?,
         
         @Parameter(description = "文档文件", required = true)
         @RequestPart("file") file: MultipartFile

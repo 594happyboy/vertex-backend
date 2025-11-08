@@ -27,7 +27,7 @@ class PathBuilderService(
      */
     fun buildFolderPath(folderId: Long, userId: Long): List<FolderPathItem> {
         return buildPath(folderId, userId) { folder ->
-            FolderPathItem(id = folder.id!!, name = folder.name)
+            FolderPathItem(id = folder.publicId ?: "", name = folder.name)  // 使用公开ID
         }
     }
     

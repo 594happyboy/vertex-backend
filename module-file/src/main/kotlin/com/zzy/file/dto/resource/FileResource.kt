@@ -58,12 +58,12 @@ data class FileResource(
         fun fromEntity(entity: FileMetadata): FileResource {
             val fileSize = entity.fileSize ?: 0
             val extension = entity.fileExtension ?: ""
-            val entityId = entity.id.toString()
+            val publicId = entity.publicId ?: throw IllegalStateException("文件缺少公开ID")
             
             return FileResource(
-                id = entityId,
+                id = publicId,  // 使用公开ID
                 name = entity.fileName ?: "unknown",
-                parentId = entity.folderId?.toString(),
+                parentId = null,  // TODO: 需要查询父文件夹的publicId，应在Service层处理
                 owner = Owner(
                     id = entity.userId.toString(),
                     name = "User${entity.userId}" // TODO: 从用户服务获取用户名
@@ -72,10 +72,10 @@ data class FileResource(
                 sizeFormatted = FileSizeFormatter.format(fileSize),
                 mimeType = entity.fileType ?: "application/octet-stream",
                 extension = extension,
-                thumbnailUrl = if (isPreviewable(extension)) "/api/v2/files/$entityId/thumbnail" else null,
-                downloadUrl = "/api/v2/files/$entityId/download",
-                previewUrl = if (isPreviewable(extension)) "/api/v2/files/$entityId/preview" else null,
-                folderId = entity.folderId?.toString(),
+                thumbnailUrl = if (isPreviewable(extension)) "/api/v2/files/$publicId/thumbnail" else null,
+                downloadUrl = "/api/v2/files/$publicId/download",
+                previewUrl = if (isPreviewable(extension)) "/api/v2/files/$publicId/preview" else null,
+                folderId = null,  // 不暴露内部文件夹ID，前端应通过文件夹树接口获取层级关系
                 tags = null, // TODO: 实现标签功能
                 description = entity.description,
                 createdAt = DateFormatter.formatIso(entity.uploadTime),

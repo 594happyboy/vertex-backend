@@ -26,6 +26,38 @@ interface FileMapper : BaseMapper<FileMetadata> {
     fun selectByMd5(md5: String): FileMetadata?
     
     /**
+     * 通过公开ID查询文件
+     */
+    @Select("""
+        SELECT * FROM file_metadata 
+        WHERE public_id = #{publicId}
+    """)
+    fun selectByPublicId(publicId: String): FileMetadata?
+    
+    /**
+     * 检查公开ID是否存在
+     */
+    @Select("""
+        SELECT COUNT(*) FROM file_metadata 
+        WHERE public_id = #{publicId}
+    """)
+    fun existsByPublicId(publicId: String): Int
+    
+    /**
+     * 批量查询（通过公开ID列表）
+     */
+    @Select("""
+        <script>
+            SELECT * FROM file_metadata 
+            WHERE public_id IN
+            <foreach collection="publicIds" item="publicId" open="(" close=")" separator=",">
+                #{publicId}
+            </foreach>
+        </script>
+    """)
+    fun selectBatchByPublicIds(@Param("publicIds") publicIds: List<String>): List<FileMetadata>
+    
+    /**
      * 软删除文件
      */
     @Update("""

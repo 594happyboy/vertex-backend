@@ -38,11 +38,13 @@ data class FolderResource(
         /**
          * 从实体转换为资源DTO
          */
-        fun fromEntity(entity: FileFolder, userId: Long): FolderResource {
+        fun fromEntity(entity: FileFolder): FolderResource {
+            val publicId = entity.publicId ?: throw IllegalStateException("文件夹缺少公开ID")
+            
             return FolderResource(
-                id = entity.id.toString(),
+                id = publicId,  // 使用公开ID
                 name = entity.name,
-                parentId = entity.parentId?.toString(),
+                parentId = null,  // TODO: 需要查询父文件夹的publicId，应在Service层处理
                 owner = Owner(
                     id = entity.userId.toString(),
                     name = "User${entity.userId}" // TODO: 从用户服务获取用户名

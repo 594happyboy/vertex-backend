@@ -151,7 +151,7 @@ class FolderExplorerService(
                     }
                 }
             },
-            mapper = { FolderResource.fromEntity(it, userId) },
+            mapper = { FolderResource.fromEntity(it) },
             sortValueExtractor = { it.name }
         )
     }
@@ -207,7 +207,7 @@ class FolderExplorerService(
             folder.subFolderCount = folderMapper.countSubFoldersByFolderId(folder.id!!)
         }
         
-        val folderResources = folderItems.map { FolderResource.fromEntity(it, userId) }
+        val folderResources = folderItems.map { FolderResource.fromEntity(it) }
         
         if (hasMoreFolders) {
             // 还有更多文件夹，继续文件夹阶段
@@ -227,7 +227,7 @@ class FolderExplorerService(
             return FolderChildrenResponse(
                 folders = folderResources,
                 files = emptyList(),
-                pagination = ChildrenPaginationInfo(
+                pagination = PaginationInfo(
                     limit = limit,
                     nextCursor = nextCursor,
                     hasMore = true,
@@ -305,7 +305,7 @@ class FolderExplorerService(
             return FolderChildrenResponse(
                 folders = folderResources,
                 files = fileResources,
-                pagination = ChildrenPaginationInfo(
+                pagination = PaginationInfo(
                     limit = limit,
                     nextCursor = nextCursor,
                     hasMore = hasMoreFiles || (remainingLimit == 0 && nextCursor != null),
@@ -362,7 +362,7 @@ class FolderExplorerService(
         return FolderChildrenResponse(
             folders = emptyList(),
             files = fileResources,
-            pagination = ChildrenPaginationInfo(
+            pagination = PaginationInfo(
                 limit = limit,
                 nextCursor = nextCursor,
                 hasMore = hasMore,
@@ -374,7 +374,7 @@ class FolderExplorerService(
     /**
      * 构建统计信息
      */
-    private fun buildStats(folderId: Long?, userId: Long): ChildrenStats {
+    private fun buildStats(folderId: Long?, userId: Long): PaginationStats {
         val totalFolders = if (folderId == null) {
             folderMapper.countRootFolders(userId).toLong()
         } else {
@@ -387,7 +387,8 @@ class FolderExplorerService(
             folderMapper.countFilesByFolderId(folderId).toLong()
         }
         
-        return ChildrenStats(
+        return PaginationStats(
+            totalItems = totalFolders + totalFiles,
             totalFolders = totalFolders,
             totalFiles = totalFiles
         )

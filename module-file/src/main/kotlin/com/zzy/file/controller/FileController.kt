@@ -1,5 +1,6 @@
 package com.zzy.file.controller
 
+import com.zzy.common.context.AuthContextHolder
 import com.zzy.common.dto.ApiResponse
 import com.zzy.file.dto.*
 import com.zzy.common.pagination.PaginatedResponse
@@ -36,46 +37,47 @@ class FileController(
     
     private val logger = LoggerFactory.getLogger(FileController::class.java)
     
-    @Operation(summary = "上传文件", description = "上传文件到指定文件夹，支持秒传，最大100MB")
-    @PostMapping("/upload")
+    @Operation(summary = "上传文件", description = "上传文件到指定文件夹，支持秒传和覆盖上传，最大100MB")
+    @PostMapping("/upload", consumes = ["multipart/form-data"])
     fun uploadFile(
-        @Parameter(description = "用户ID", required = true)
-        @RequestParam userId: Long,
-        
         @Parameter(description = "上传的文件", required = true)
         @RequestParam("file") file: MultipartFile,
         
-        @Parameter(description = "所属文件夹ID（null表示根目录）")
-        @RequestParam(required = false) folderId: Long?,
+        @Parameter(description = "所属文件夹公开ID（null表示根目录）")
+        @RequestParam(required = false) folderId: String?,
         
         @Parameter(description = "文件描述")
-        @RequestParam(required = false) description: String?
+        @RequestParam(required = false) description: String?,
+        
+        @Parameter(description = "要替换的文件公开ID（提供此参数则执行覆盖上传）")
+        @RequestParam(required = false) replaceFileId: String?
     ): ApiResponse<FileResponse> {
-        logger.info("开始上传文件: userId={}, fileName={}, fileSize={}, folderId={}", 
-            userId, file.originalFilename, file.size, folderId)
+        val userId = AuthContextHolder.getCurrentUserId()
+        logger.info("开始上传文件: userId={}, fileName={}, fileSize={}, folderId={}, replaceFileId={}", 
+            userId, file.originalFilename, file.size, folderId, replaceFileId)
         
         val request = FileUploadRequest(
             folderId = folderId,
-            description = description
+            description = description,
+            replaceFileId = replaceFileId
         )
         
         val fileResponse = fileService.uploadFile(userId, file, request)
         
-        return ApiResponse.success(fileResponse, "文件上传成功")
+        val message = if (replaceFileId != null) "文件覆盖成功" else "文件上传成功"
+        return ApiResponse.success(fileResponse, message)
     }
     
     @Operation(summary = "上传附件", description = "上传附件文件，自动存储到系统/附件文件夹")
-    @PostMapping("/upload/attachment")
+    @PostMapping("/upload/attachment", consumes = ["multipart/form-data"])
     fun uploadAttachment(
-        @Parameter(description = "用户ID", required = true)
-        @RequestParam userId: Long,
-        
         @Parameter(description = "上传的文件", required = true)
         @RequestParam("file") file: MultipartFile,
         
         @Parameter(description = "文件描述")
         @RequestParam(required = false) description: String?
     ): ApiResponse<FileResponse> {
+        val userId = AuthContextHolder.getCurrentUserId()
         logger.info("上传附件: userId={}, fileName={}", userId, file.originalFilename)
         
         val fileResponse = fileService.uploadToSystemFolder(
@@ -88,42 +90,42 @@ class FileController(
         return ApiResponse.success(fileResponse, "附件上传成功")
     }
     
-    @Operation(summary = "获取文件详情", description = "根据文件ID获取详细信息")
-    @GetMapping("/{id}")
+    @Operation(summary = "获取文件详情", description = "根据文件公开ID获取详细信息")
+    @GetMapping("/{publicId}")
     fun getFileInfo(
-        @Parameter(description = "文件ID", required = true) @PathVariable id: Long,
-        @Parameter(description = "用户ID", required = true) @RequestParam userId: Long
+        @Parameter(description = "文件公开ID", required = true) @PathVariable publicId: String
     ): ApiResponse<FileResponse> {
-        logger.debug("查询文件详情: fileId={}, userId={}", id, userId)
+        val userId = AuthContextHolder.getCurrentUserId()
+        logger.debug("查询文件详情: publicId={}, userId={}", publicId, userId)
         
-        val fileInfo = fileService.getFileInfo(id, userId)
+        val fileInfo = fileService.getFileInfoByPublicId(publicId, userId)
         
         return ApiResponse.success(fileInfo, "查询成功")
     }
     
     @Operation(summary = "更新文件信息", description = "更新文件名称、描述等")
-    @PutMapping("/{id}")
+    @PutMapping("/{publicId}")
     fun updateFile(
-        @Parameter(description = "文件ID", required = true) @PathVariable id: Long,
-        @Parameter(description = "用户ID", required = true) @RequestParam userId: Long,
+        @Parameter(description = "文件公开ID", required = true) @PathVariable publicId: String,
         @RequestBody request: UpdateFileRequest
     ): ApiResponse<FileResponse> {
-        logger.info("更新文件信息: fileId={}, userId={}", id, userId)
+        val userId = AuthContextHolder.getCurrentUserId()
+        logger.info("更新文件信息: publicId={}, userId={}", publicId, userId)
         
-        val fileInfo = fileService.updateFile(id, userId, request)
+        val fileInfo = fileService.updateFileByPublicId(publicId, userId, request)
         
         return ApiResponse.success(fileInfo, "更新成功")
     }
     
-    @Operation(summary = "下载文件", description = "根据文件ID下载文件（公开接口，无需认证）")
-    @GetMapping("/{id}/download")
+    @Operation(summary = "下载文件", description = "根据文件公开ID下载文件（公开接口，无需认证）")
+    @GetMapping("/download/{publicId}")
     fun downloadFile(
-        @Parameter(description = "文件ID", required = true) @PathVariable id: Long,
+        @Parameter(description = "文件公开ID", required = true) @PathVariable publicId: String,
         response: HttpServletResponse
     ) {
-        logger.info("开始下载文件: fileId={}", id)
+        logger.info("开始下载文件: publicId={}", publicId)
         
-        val (inputStream, fileMetadata) = fileService.downloadFile(id)
+        val (inputStream, fileMetadata) = fileService.downloadFileByPublicId(publicId)
         
         // 设置Content-Type
         response.contentType = fileMetadata.fileType ?: "application/octet-stream"
@@ -149,17 +151,17 @@ class FileController(
     }
     
     @Operation(summary = "移动文件", description = "将文件移动到指定文件夹")
-    @PutMapping("/{id}/move")
+    @PutMapping("/move/{publicId}")
     fun moveFile(
-        @Parameter(description = "文件ID", required = true) @PathVariable id: Long,
-        @Parameter(description = "用户ID", required = true) @RequestParam userId: Long,
+        @Parameter(description = "文件公开ID", required = true) @PathVariable publicId: String,
         @RequestBody request: MoveFileRequest
     ): ApiResponse<FileResponse> {
-        logger.info("移动文件: fileId={}, userId={}, targetFolderId={}", 
-            id, userId, request.targetFolderId)
+        val userId = AuthContextHolder.getCurrentUserId()
+        logger.info("移动文件: publicId={}, userId={}, targetFolderId={}", 
+            publicId, userId, request.targetFolderId)
         
         val updateRequest = UpdateFileRequest(folderId = request.targetFolderId)
-        val fileInfo = fileService.updateFile(id, userId, updateRequest)
+        val fileInfo = fileService.updateFileByPublicId(publicId, userId, updateRequest)
         
         return ApiResponse.success(fileInfo, "移动成功")
     }
@@ -167,9 +169,9 @@ class FileController(
     @Operation(summary = "批量移动文件", description = "批量将文件移动到指定文件夹")
     @PostMapping("/batch-move")
     fun batchMoveFiles(
-        @Parameter(description = "用户ID", required = true) @RequestParam userId: Long,
         @RequestBody request: BatchMoveFilesRequest
     ): ApiResponse<Map<String, Any>> {
+        val userId = AuthContextHolder.getCurrentUserId()
         logger.info("批量移动文件: userId={}, fileCount={}, targetFolderId={}", 
             userId, request.fileIds.size, request.targetFolderId)
         
@@ -185,14 +187,14 @@ class FileController(
     }
     
     @Operation(summary = "删除文件", description = "删除文件（软删除，移入回收站）")
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/delete/{publicId}")
     fun deleteFile(
-        @Parameter(description = "文件ID", required = true) @PathVariable id: Long,
-        @Parameter(description = "用户ID", required = true) @RequestParam userId: Long
+        @Parameter(description = "文件公开ID", required = true) @PathVariable publicId: String
     ): ApiResponse<Boolean> {
-        logger.info("删除文件: fileId={}, userId={}", id, userId)
+        val userId = AuthContextHolder.getCurrentUserId()
+        logger.info("删除文件: publicId={}, userId={}", publicId, userId)
         
-        val result = fileService.deleteFile(id, userId)
+        val result = fileService.deleteFileByPublicId(publicId, userId)
         
         return ApiResponse.success(result, "删除成功")
     }
@@ -200,9 +202,9 @@ class FileController(
     @Operation(summary = "批量操作", description = "批量操作文件（移动、删除、恢复等）")
     @PostMapping("/batch")
     fun batchOperation(
-        @Parameter(description = "用户ID", required = true) @RequestParam userId: Long,
         @RequestBody request: BatchOperationRequest
     ): ApiResponse<BatchOperationResponse> {
+        val userId = AuthContextHolder.getCurrentUserId()
         logger.info("批量操作文件: userId={}, action={}, fileCount={}", 
             userId, request.action, request.fileIds.size)
         
@@ -214,9 +216,9 @@ class FileController(
     @Operation(summary = "批量删除文件", description = "批量删除文件（软删除）")
     @PostMapping("/batch-delete")
     fun batchDeleteFiles(
-        @Parameter(description = "用户ID", required = true) @RequestParam userId: Long,
         @RequestBody request: BatchDeleteFilesRequest
     ): ApiResponse<Map<String, Any>> {
+        val userId = AuthContextHolder.getCurrentUserId()
         logger.info("批量删除文件: userId={}, fileCount={}", userId, request.fileIds.size)
         
         val count = fileService.batchDeleteFiles(userId, request)
@@ -231,27 +233,27 @@ class FileController(
     }
     
     @Operation(summary = "恢复文件", description = "从回收站恢复文件")
-    @PostMapping("/{id}/restore")
+    @PostMapping("/restore/{publicId}")
     fun restoreFile(
-        @Parameter(description = "文件ID", required = true) @PathVariable id: Long,
-        @Parameter(description = "用户ID", required = true) @RequestParam userId: Long
+        @Parameter(description = "文件公开ID", required = true) @PathVariable publicId: String
     ): ApiResponse<Map<String, Boolean>> {
-        logger.info("恢复文件: fileId={}, userId={}", id, userId)
+        val userId = AuthContextHolder.getCurrentUserId()
+        logger.info("恢复文件: publicId={}, userId={}", publicId, userId)
         
-        val result = trashService.restoreFile(id, userId)
+        val result = trashService.restoreFileByPublicId(publicId, userId)
         
         return ApiResponse.success(mapOf("success" to result), "恢复成功")
     }
     
     @Operation(summary = "永久删除文件", description = "彻底删除文件，包括MinIO中的物理文件，不可恢复")
-    @DeleteMapping("/{id}/permanent")
+    @DeleteMapping("/permanent/{publicId}")
     fun permanentlyDeleteFile(
-        @Parameter(description = "文件ID", required = true) @PathVariable id: Long,
-        @Parameter(description = "用户ID", required = true) @RequestParam userId: Long
+        @Parameter(description = "文件公开ID", required = true) @PathVariable publicId: String
     ): ApiResponse<Map<String, Boolean>> {
-        logger.info("永久删除文件: fileId={}, userId={}", id, userId)
+        val userId = AuthContextHolder.getCurrentUserId()
+        logger.info("永久删除文件: publicId={}, userId={}", publicId, userId)
         
-        val result = trashService.permanentlyDeleteFile(id, userId)
+        val result = trashService.permanentlyDeleteFileByPublicId(publicId, userId)
         
         return ApiResponse.success(mapOf("success" to result), "永久删除成功")
     }
@@ -262,10 +264,10 @@ class FileController(
     )
     @GetMapping("/recycle-bin")
     fun getRecycleBinFiles(
-        @Parameter(description = "用户ID", required = true) @RequestParam userId: Long,
         @Parameter(description = "分页游标，首次请求不传") @RequestParam(required = false) cursor: String?,
         @Parameter(description = "每页数量，范围1-200") @RequestParam(defaultValue = "50") limit: Int
     ): ApiResponse<PaginatedResponse<FileResource>> {
+        val userId = AuthContextHolder.getCurrentUserId()
         logger.debug("查询回收站: userId={}, cursor={}, limit={}", userId, cursor, limit)
         
         val validLimit = limit.coerceIn(
@@ -281,9 +283,8 @@ class FileController(
     
     @Operation(summary = "获取文件统计信息", description = "获取用户的文件总数、总大小、类型分布等统计信息")
     @GetMapping("/statistics")
-    fun getFileStatistics(
-        @Parameter(description = "用户ID", required = true) @RequestParam userId: Long
-    ): ApiResponse<FileStatisticsResponse> {
+    fun getFileStatistics(): ApiResponse<FileStatisticsResponse> {
+        val userId = AuthContextHolder.getCurrentUserId()
         logger.debug("获取文件统计信息: userId={}", userId)
         
         val statistics = fileService.getFileStatistics(userId)
@@ -355,16 +356,18 @@ class FileController(
         summary = "查看文件引用详情",
         description = "查看指定文件的所有引用信息"
     )
-    @GetMapping("/{id}/references")
+    @GetMapping("/{publicId}/references")
     fun getFileReferences(
-        @Parameter(description = "文件ID", required = true) @PathVariable id: Long
+        @Parameter(description = "文件公开ID", required = true) @PathVariable publicId: String
     ): ApiResponse<Map<String, Any>> {
-        logger.info("查询文件引用详情: fileId={}", id)
+        logger.info("查询文件引用详情: publicId={}", publicId)
         
-        val references = fileReferenceService.getFileReferences(id)
+        // 先通过publicId获取内部ID
+        val file = fileReferenceService.getFileByPublicId(publicId)
+        val references = fileReferenceService.getFileReferences(file.id!!)
         
         val result = mapOf(
-            "fileId" to id,
+            "filePublicId" to publicId,
             "referenceCount" to references.size,
             "references" to references.map { ref ->
                 mapOf(

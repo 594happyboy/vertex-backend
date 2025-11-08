@@ -18,9 +18,10 @@ USE vertex_backend;
 -- 文件管理模块（支持文件夹树形结构）
 -- ============================================
 
--- 文件夹表（树形结构）
+-- 文件夹表（树形结构，使用公开ID作为外部标识）
 CREATE TABLE IF NOT EXISTS file_folders (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '文件夹ID',
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '文件夹ID（内部数据库主键）',
+    public_id VARCHAR(21) NOT NULL UNIQUE COMMENT '公开ID（21位随机字符串，对外暴露）',
     user_id BIGINT NOT NULL COMMENT '用户ID',
     name VARCHAR(128) NOT NULL COMMENT '文件夹名称',
     parent_id BIGINT NULL COMMENT '父文件夹ID（NULL表示根目录）',
@@ -32,16 +33,18 @@ CREATE TABLE IF NOT EXISTS file_folders (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     FOREIGN KEY (parent_id) REFERENCES file_folders(id) ON DELETE SET NULL,
+    UNIQUE KEY uk_public_id (public_id),
     INDEX idx_user_id (user_id),
     INDEX idx_parent_id (parent_id),
     INDEX idx_sort_index (sort_index),
     INDEX idx_deleted (deleted),
     INDEX idx_user_parent (user_id, parent_id, deleted)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文件夹表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文件夹表（使用公开ID作为外部标识）';
 
--- 文件元数据表（重构版，支持文件夹）
+-- 文件元数据表（重构版，支持文件夹，使用公开ID作为外部标识）
 CREATE TABLE IF NOT EXISTS file_metadata (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '文件ID',
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '文件ID（内部数据库主键）',
+    public_id VARCHAR(21) NOT NULL UNIQUE COMMENT '公开ID（21位随机字符串，对外暴露）',
     user_id BIGINT NOT NULL COMMENT '上传用户ID',
     folder_id BIGINT NULL COMMENT '所属文件夹ID（NULL表示根目录）',
     file_name VARCHAR(255) NOT NULL COMMENT '原始文件名',
@@ -60,6 +63,7 @@ CREATE TABLE IF NOT EXISTS file_metadata (
     upload_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间',
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     FOREIGN KEY (folder_id) REFERENCES file_folders(id) ON DELETE SET NULL,
+    UNIQUE KEY uk_public_id (public_id),
     INDEX idx_user_id (user_id),
     INDEX idx_folder_id (folder_id),
     INDEX idx_file_name (file_name),
@@ -70,7 +74,7 @@ CREATE TABLE IF NOT EXISTS file_metadata (
     INDEX idx_user_folder (user_id, folder_id, deleted),
     INDEX idx_reference_count (reference_count, deleted),
     FULLTEXT INDEX idx_file_name_ft (file_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文件元数据表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文件元数据表（使用公开ID作为外部标识）';
 
 -- 文件引用关系表
 CREATE TABLE IF NOT EXISTS file_references (
