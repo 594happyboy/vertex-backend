@@ -131,6 +131,9 @@ class FileController(
         response.contentType = fileMetadata.fileType ?: "application/octet-stream"
         response.characterEncoding = "UTF-8"
         
+        // 设置Content-Length
+        fileMetadata.fileSize?.let { response.setContentLengthLong(it) }
+        
         // 设置文件名（RFC 5987标准）
         val fileName = fileMetadata.fileName ?: "download"
         val encodedFileName = URLEncoder.encode(fileName, StandardCharsets.UTF_8)
@@ -356,7 +359,7 @@ class FileController(
         summary = "查看文件引用详情",
         description = "查看指定文件的所有引用信息"
     )
-    @GetMapping("/{publicId}/references")
+    @GetMapping("/references/{publicId}")
     fun getFileReferences(
         @Parameter(description = "文件公开ID", required = true) @PathVariable publicId: String
     ): ApiResponse<Map<String, Any>> {

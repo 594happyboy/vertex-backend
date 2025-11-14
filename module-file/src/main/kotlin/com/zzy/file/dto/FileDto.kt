@@ -56,8 +56,8 @@ data class FileResponse(
                 uploadTime = DateFormatter.format(entity.uploadTime),
                 updateTime = DateFormatter.format(entity.updateTime),
                 downloadCount = entity.downloadCount,
-                downloadUrl = "/api/files/${entity.publicId}/download",  // 使用公开ID
-                previewUrl = if (isPreviewable(extension)) "/api/files/${entity.publicId}/preview" else null,
+                downloadUrl = "/api/files/download/${entity.publicId}",  // 使用公开ID
+                previewUrl = if (isPreviewable(extension)) "/api/files/preview/${entity.publicId}" else null,
                 deletedAt = DateFormatter.format(entity.deletedAt),
                 daysUntilPermanentDeletion = daysUntilDeletion
             )

@@ -59,10 +59,20 @@ class FileReferenceService(
     ): ReferenceChanges {
         logger.debug("同步文档文件引用: documentId={}", documentId)
         
-        // 1. 从MD内容中提取当前所有文件引用
-        val currentFileIds = MarkdownFileExtractor.extractFileIds(markdownContent)
+        // 1. 从MD内容中提取当前所有文件公开ID
+        val currentPublicIds = MarkdownFileExtractor.extractFileIds(markdownContent)
         
-        // 2. 查询数据库中已有的引用关系
+        // 2. 将公开ID转换为内部ID
+        val currentFileIds = currentPublicIds.mapNotNull { publicId ->
+            try {
+                fileMapper.selectByPublicId(publicId)?.id
+            } catch (e: Exception) {
+                logger.warn("文件公开ID不存在，跳过: publicId={}", publicId)
+                null
+            }
+        }.toSet()
+        
+        // 3. 查询数据库中已有的引用关系
         val existingRefs = fileReferenceMapper.selectList(
             QueryWrapper<FileReference>()
                 .eq("reference_type", ReferenceType.DOCUMENT_CONTENT.value)
@@ -70,19 +80,19 @@ class FileReferenceService(
         )
         val existingFileIds = existingRefs.map { it.fileId }.toSet()
         
-        // 3. 计算差异
+        // 4. 计算差异
         val toAdd = currentFileIds - existingFileIds      // 新增的引用
         val toRemove = existingFileIds - currentFileIds   // 删除的引用
         
         logger.info("文档引用变化: documentId={}, 新增={}, 删除={}", 
             documentId, toAdd.size, toRemove.size)
         
-        // 4. 删除不再引用的文件
+        // 5. 删除不再引用的文件
         toRemove.forEach { fileId ->
             removeReference(fileId, ReferenceType.DOCUMENT_CONTENT.value, documentId)
         }
         
-        // 5. 添加新引用的文件
+        // 6. 添加新引用的文件
         toAdd.forEach { fileId ->
             addReference(fileId, ReferenceType.DOCUMENT_CONTENT.value, documentId)
         }

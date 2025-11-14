@@ -7,7 +7,7 @@ REM ============================================
 
 cd /d "%~dp0\..\..\"
 
-set SERVER_IP=47.109.191.242
+set SERVER_IP=142.171.169.111
 set SERVER_USER=root
 set SERVER_PATH=/opt/vertex-backend
 

@@ -53,7 +53,7 @@ class FolderController(
     }
     
     @Operation(summary = "获取目录内容列表", description = "获取指定目录下的文件和子文件夹，文件夹和文件分别返回，文件夹始终优先展示，支持游标分页、排序和搜索")
-    @GetMapping("/{id}/children")
+    @GetMapping("/children/{id}")
     fun getFolderChildren(
         @Parameter(description = "文件夹ID，root表示根目录", required = true) @PathVariable id: String,
         @Parameter(description = "分页游标，首次请求不传") @RequestParam(required = false) cursor: String?,
@@ -116,7 +116,7 @@ class FolderController(
     }
     
     @Operation(summary = "获取子文件夹列表", description = "仅获取子文件夹列表（不含文件），支持游标分页，适用于树形导航的懒加载")
-    @GetMapping("/{id}/subfolders")
+    @GetMapping("/subfolders/{id}")
     fun getSubFolders(
         @Parameter(description = "文件夹ID，root表示根目录", required = true) @PathVariable id: String,
         @Parameter(description = "分页游标，首次请求不传") @RequestParam(required = false) cursor: String?,
@@ -137,7 +137,7 @@ class FolderController(
     }
     
     @Operation(summary = "搜索目录内容", description = "在指定目录范围内搜索文件和文件夹，文件夹和文件分别返回，文件夹始终优先展示")
-    @GetMapping("/{id}/search")
+    @GetMapping("/search/{id}")
     fun searchInFolder(
         @Parameter(description = "搜索范围的文件夹ID，root表示全局搜索", required = true) @PathVariable id: String,
         @Parameter(description = "搜索关键词，最多100个字符", required = true) @RequestParam keyword: String,
@@ -229,7 +229,7 @@ class FolderController(
     }
     
     @Operation(summary = "获取文件夹路径", description = "获取文件夹的完整路径（面包屑导航）")
-    @GetMapping("/{id}/path")
+    @GetMapping("/path/{id}")
     fun getFolderPath(
         @Parameter(description = "文件夹公开ID", required = true) @PathVariable id: String
     ): ApiResponse<FolderPathResponse> {

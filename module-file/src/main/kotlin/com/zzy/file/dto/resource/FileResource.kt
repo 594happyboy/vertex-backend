@@ -72,9 +72,9 @@ data class FileResource(
                 sizeFormatted = FileSizeFormatter.format(fileSize),
                 mimeType = entity.fileType ?: "application/octet-stream",
                 extension = extension,
-                thumbnailUrl = if (isPreviewable(extension)) "/api/v2/files/$publicId/thumbnail" else null,
-                downloadUrl = "/api/v2/files/$publicId/download",
-                previewUrl = if (isPreviewable(extension)) "/api/v2/files/$publicId/preview" else null,
+                thumbnailUrl = if (isPreviewable(extension)) "/api/files/thumbnail/$publicId" else null,
+                downloadUrl = "/api/files/download/$publicId",
+                previewUrl = if (isPreviewable(extension)) "/api/files/preview/$publicId" else null,
                 folderId = null,  // 不暴露内部文件夹ID，前端应通过文件夹树接口获取层级关系
                 tags = null, // TODO: 实现标签功能
                 description = entity.description,
