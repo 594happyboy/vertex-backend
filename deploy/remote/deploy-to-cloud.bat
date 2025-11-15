@@ -11,6 +11,23 @@ set SERVER_IP=142.171.169.111
 set SERVER_USER=root
 set SERVER_PATH=/opt/vertex-backend
 
+REM SSH configuration (uses key in %USERPROFILE%\.ssh, e.g. C:\Users\64227\.ssh)
+set "SSH_KEY_DIR=%USERPROFILE%\.ssh"
+set "SSH_KEY_FILE="
+
+if exist "%SSH_KEY_DIR%\id_ed25519" set "SSH_KEY_FILE=%SSH_KEY_DIR%\id_ed25519"
+if not defined SSH_KEY_FILE if exist "%SSH_KEY_DIR%\id_rsa" set "SSH_KEY_FILE=%SSH_KEY_DIR%\id_rsa"
+if not defined SSH_KEY_FILE if exist "%SSH_KEY_DIR%\id_ecdsa" set "SSH_KEY_FILE=%SSH_KEY_DIR%\id_ecdsa"
+if not defined SSH_KEY_FILE if exist "%SSH_KEY_DIR%\id_dsa" set "SSH_KEY_FILE=%SSH_KEY_DIR%\id_dsa"
+
+if defined SSH_KEY_FILE (
+    echo [INFO] Using SSH key: %SSH_KEY_FILE%
+    set "SSH_OPTIONS=-o StrictHostKeyChecking=no -i \"%SSH_KEY_FILE%\" -o IdentitiesOnly=yes -o PreferredAuthentications=publickey -o PasswordAuthentication=no"
+) else (
+    echo [WARNING] No SSH private key found under %SSH_KEY_DIR%. Falling back to password authentication.
+    set "SSH_OPTIONS=-o StrictHostKeyChecking=no"
+)
+
 goto main_menu_level1
 
 :build_and_upload
@@ -116,12 +133,12 @@ echo.
 
 echo [4/4] Uploading to server...
 echo ----------------------------------------
-echo NOTE: Enter password once to complete all operations
+echo NOTE: Using SSH key authentication; server password should not be required once key is configured
 echo.
 
 echo Uploading archive...
 echo Local archive: %TEMP_ARCHIVE%
-scp -o StrictHostKeyChecking=no "%TEMP_ARCHIVE%" %SERVER_USER%@%SERVER_IP%:/tmp/
+scp %SSH_OPTIONS% "%TEMP_ARCHIVE%" %SERVER_USER%@%SERVER_IP%:/tmp/
 if errorlevel 1 (
     echo [ERROR] Upload failed
     del "%TEMP_ARCHIVE%" 2>nul
@@ -134,7 +151,7 @@ echo.
 echo Extracting on server...
 echo Target path: %SERVER_PATH%
 echo Archive name: %TEMP_ARCHIVE%
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "echo '[Step 1/6] Verifying uploaded archive...' && ls -lh /tmp/%TEMP_ARCHIVE% && echo '[Step 2/6] Creating target directory...' && mkdir -p %SERVER_PATH% && echo '[Step 3/6] Listing files before extract...' && ls -l %SERVER_PATH%/ 2>/dev/null || echo '  Directory is empty or new' && echo '[Step 4/6] Removing old files...' && cd %SERVER_PATH% && rm -f vertex-backend.jar schema.sql docker-compose.yml Dockerfile && echo '[Step 5/6] Extracting archive...' && tar -xzvf /tmp/%TEMP_ARCHIVE% && echo '[Step 6/6] Verifying extracted files...' && ls -lh %SERVER_PATH%/ && echo '[Cleanup] Removing temp archive...' && rm -f /tmp/%TEMP_ARCHIVE% && echo '[SUCCESS] All operations completed'"
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "echo '[Step 1/6] Verifying uploaded archive...' && ls -lh /tmp/%TEMP_ARCHIVE% && echo '[Step 2/6] Creating target directory...' && mkdir -p %SERVER_PATH% && echo '[Step 3/6] Listing files before extract...' && ls -l %SERVER_PATH%/ 2>/dev/null || echo '  Directory is empty or new' && echo '[Step 4/6] Removing old files...' && cd %SERVER_PATH% && rm -f vertex-backend.jar schema.sql docker-compose.yml Dockerfile && echo '[Step 5/6] Extracting archive...' && tar -xzvf /tmp/%TEMP_ARCHIVE% && echo '[Step 6/6] Verifying extracted files...' && ls -lh %SERVER_PATH%/ && echo '[Cleanup] Removing temp archive...' && rm -f /tmp/%TEMP_ARCHIVE% && echo '[SUCCESS] All operations completed'"
 if errorlevel 1 (
     echo [ERROR] Extract failed
     del "%TEMP_ARCHIVE%" 2>nul
@@ -151,39 +168,39 @@ goto upload_success
 
 :traditional_upload
 echo.
-echo Using traditional upload (multiple password prompts)
+echo Using traditional upload (multiple SSH connections if not using key)
 echo.
 
 echo Creating server directory...
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "mkdir -p %SERVER_PATH%"
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "mkdir -p %SERVER_PATH%"
 if errorlevel 1 (
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
 echo Uploading vertex-backend.jar...
-scp -o StrictHostKeyChecking=no "%TEMP_DIR%\vertex-backend.jar" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
+scp %SSH_OPTIONS% "%TEMP_DIR%\vertex-backend.jar" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
 if errorlevel 1 (
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
 echo Uploading schema.sql...
-scp -o StrictHostKeyChecking=no "%TEMP_DIR%\schema.sql" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
+scp %SSH_OPTIONS% "%TEMP_DIR%\schema.sql" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
 if errorlevel 1 (
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
 echo Uploading docker-compose.yml...
-scp -o StrictHostKeyChecking=no "%TEMP_DIR%\docker-compose.yml" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
+scp %SSH_OPTIONS% "%TEMP_DIR%\docker-compose.yml" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
 if errorlevel 1 (
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
 echo Uploading Dockerfile...
-scp -o StrictHostKeyChecking=no "%TEMP_DIR%\Dockerfile" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
+scp %SSH_OPTIONS% "%TEMP_DIR%\Dockerfile" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
 if errorlevel 1 (
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
@@ -344,11 +361,11 @@ echo [INFO] Will automatically START backend after rebuild
 echo [NOTE] MySQL, Redis, MinIO will NOT be affected
 echo [USE CASE] Use after uploading new JAR (Option 1) or config changes
 echo.
-echo NOTE: Enter password ONCE for all operations
+echo NOTE: Using SSH key authentication; server password should not be required once key is configured
 echo.
 echo Updating vertex-backend container...
 echo.
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose up -d --build --force-recreate --no-deps vertex-backend && echo && docker compose ps"
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose up -d --build --force-recreate --no-deps vertex-backend && echo && docker compose ps"
 if errorlevel 1 (
     echo.
     echo [ERROR] Failed to rebuild and start container
@@ -382,11 +399,11 @@ if /i not "%CONFIRM%"=="y" (
     goto after_operation
 )
 echo.
-echo NOTE: Enter password ONCE for all operations
+echo NOTE: Using SSH key authentication; server password should not be required once key is configured
 echo.
 echo Rebuilding all services...
 echo.
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker stop vertex-backend vertex-mysql vertex-redis vertex-minio 2>/dev/null || true && docker rm -f vertex-backend vertex-mysql vertex-redis vertex-minio 2>/dev/null || true && docker compose down 2>/dev/null || true && docker compose up -d --build --force-recreate && echo && docker compose ps"
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker stop vertex-backend vertex-mysql vertex-redis vertex-minio 2>/dev/null || true && docker rm -f vertex-backend vertex-mysql vertex-redis vertex-minio 2>/dev/null || true && docker compose down 2>/dev/null || true && docker compose up -d --build --force-recreate && echo && docker compose ps"
 if errorlevel 1 (
     echo.
     echo [ERROR] Failed to rebuild and start services
@@ -438,11 +455,11 @@ if /i not "%CONFIRM2%"=="y" (
     goto after_operation
 )
 echo.
-echo NOTE: Enter password ONCE for all operations
+echo NOTE: Using SSH key authentication; server password should not be required once key is configured
 echo.
 echo Removing all services and volumes...
 echo.
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose down -v && echo && echo 'All volumes deleted.' && echo 'Rebuilding all services...' && echo && docker compose up -d --build --force-recreate && echo && docker compose ps"
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose down -v && echo && echo 'All volumes deleted.' && echo 'Rebuilding all services...' && echo && docker compose up -d --build --force-recreate && echo && docker compose ps"
 if errorlevel 1 (
     echo.
     echo [ERROR] Failed to rebuild and start services
@@ -472,7 +489,7 @@ echo [USE CASE] Use this only if backend is stuck or frozen
 echo.
 echo Restarting backend...
 echo.
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose restart vertex-backend && echo && docker compose ps vertex-backend"
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose restart vertex-backend && echo && docker compose ps vertex-backend"
 if errorlevel 1 (
     echo.
     echo [ERROR] Failed to restart container
@@ -503,7 +520,7 @@ if /i not "%CONFIRM%"=="y" (
 echo.
 echo Restarting all services...
 echo.
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose restart && echo && docker compose ps"
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose restart && echo && docker compose ps"
 if errorlevel 1 (
     echo.
     echo [ERROR] Failed to restart services
@@ -521,7 +538,7 @@ echo.
 echo [INFO] Showing real-time application logs
 echo [INFO] Press Ctrl+C to exit
 echo.
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose logs -f vertex-backend"
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose logs -f vertex-backend"
 goto after_operation
 
 :option_status
@@ -533,7 +550,7 @@ echo ========================================
 echo.
 echo [INFO] Checking service status and resource usage
 echo.
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose ps && echo && echo 'Resource usage:' && docker stats --no-stream vertex-backend 2>/dev/null || echo '  Container not running'"
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose ps && echo && echo 'Resource usage:' && docker stats --no-stream vertex-backend 2>/dev/null || echo '  Container not running'"
 goto after_operation
 
 :option_stop
@@ -554,7 +571,7 @@ if /i not "%CONFIRM%"=="y" (
 )
 echo.
 echo Stopping all services...
-ssh -o StrictHostKeyChecking=no %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose down"
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose down"
 if errorlevel 1 (
     echo.
     echo [ERROR] Failed to stop services
@@ -643,7 +660,7 @@ echo.
 echo Troubleshooting:
 echo 1. Check network connection
 echo 2. Verify server IP: %SERVER_IP%
-echo 3. Verify password
+echo 3. Verify SSH key configuration (or password if you still use it)
 echo 4. Check OpenSSH client installed
 echo    Enable in Windows Settings
 echo    Or install Git for Windows
