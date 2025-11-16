@@ -1,17 +1,24 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal EnableExtensions EnableDelayedExpansion
+
+for /f "tokens=2 delims=: " %%a in ('chcp') do set "ORIGINAL_CP=%%a"
+set "ORIGINAL_CP=%ORIGINAL_CP: =%"
+if not "%ORIGINAL_CP%"=="65001" (
+    chcp 65001 >nul
+    set "RESTORE_CP=%ORIGINAL_CP%"
+)
 
 REM ============================================
-REM Vertex Backend - Deploy Script
+REM Vertex Backend - 部署脚本
 REM ============================================
 
-cd /d "%~dp0\..\..\"
+cd /d "%~dp0\..\.."
 
 set SERVER_IP=142.171.169.111
 set SERVER_USER=root
 set SERVER_PATH=/opt/vertex-backend
 
-REM SSH configuration (uses key in %USERPROFILE%\.ssh, e.g. C:\Users\64227\.ssh)
+REM SSH 配置（默认查找 %USERPROFILE%\.ssh 下的常用密钥）
 set "SSH_KEY_DIR=%USERPROFILE%\.ssh"
 set "SSH_KEY_FILE="
 
@@ -21,10 +28,10 @@ if not defined SSH_KEY_FILE if exist "%SSH_KEY_DIR%\id_ecdsa" set "SSH_KEY_FILE=
 if not defined SSH_KEY_FILE if exist "%SSH_KEY_DIR%\id_dsa" set "SSH_KEY_FILE=%SSH_KEY_DIR%\id_dsa"
 
 if defined SSH_KEY_FILE (
-    echo [INFO] Using SSH key: %SSH_KEY_FILE%
+    echo [信息] 使用 SSH 密钥：%SSH_KEY_FILE%
     set "SSH_OPTIONS=-o StrictHostKeyChecking=no -i \"%SSH_KEY_FILE%\" -o IdentitiesOnly=yes -o PreferredAuthentications=publickey -o PasswordAuthentication=no"
 ) else (
-    echo [WARNING] No SSH private key found under %SSH_KEY_DIR%. Falling back to password authentication.
+    echo [警告] 在 %SSH_KEY_DIR% 下未找到 SSH 私钥，将尝试密码认证
     set "SSH_OPTIONS=-o StrictHostKeyChecking=no"
 )
 
@@ -33,186 +40,170 @@ goto main_menu_level1
 :build_and_upload
 echo.
 echo ========================================
-echo Build and Upload
+echo 构建并上传
 echo ========================================
 echo.
-echo Current directory: %CD%
+echo 当前工作目录：%CD%
 echo.
 
-echo [1/4] Building JAR file...
+echo [1/4] 正在构建 JAR 文件...
 echo ----------------------------------------
 call gradlew.bat :app-bootstrap:bootJar --no-daemon
 if errorlevel 1 (
-    echo [ERROR] Build failed
+    echo [错误] 构建失败
     echo.
     pause
     goto main_menu_level1
 )
-echo [DONE] Build success
+echo [完成] 构建成功
 echo.
 
 if not exist "app-bootstrap\build\libs\vertex-backend.jar" (
-    echo [ERROR] JAR file not found
+    echo [错误] 未找到生成的 JAR：app-bootstrap\build\libs\vertex-backend.jar
     echo.
     pause
     goto main_menu_level1
 )
 
-echo [2/4] Checking files...
+echo [2/4] 正在检查必需文件...
 echo ----------------------------------------
 set "FILES_OK=1"
-if not exist "deploy\schema.sql" (
-    echo [ERROR] schema.sql not found
-    set "FILES_OK=0"
-)
-if not exist "deploy\remote\docker-compose.yml" (
-    echo [ERROR] docker-compose.yml not found
-    set "FILES_OK=0"
-)
-if not exist "deploy\remote\Dockerfile" (
-    echo [ERROR] Dockerfile not found
-    set "FILES_OK=0"
+for %%F in (deploy\schema.sql deploy\remote\docker-compose.yml deploy\remote\Dockerfile) do (
+    if not exist "%%~F" (
+        echo [错误] 未找到文件：%%~F
+        set "FILES_OK=0"
+    )
 )
 
 if "!FILES_OK!"=="0" (
     echo.
-    echo [ERROR] Missing required files
+    echo [错误] 缺少所需文件，操作终止
     echo.
     pause
     goto main_menu_level1
 )
-echo [DONE] All files checked
+echo [完成] 文件校验通过
 echo.
 
-echo [3/4] Packing files...
+echo [3/4] 正在准备部署文件...
 echo ----------------------------------------
-set TEMP_DIR=temp_deploy_%RANDOM%
-set TEMP_ARCHIVE=deploy_%RANDOM%.tar.gz
+set "TEMP_DIR=temp_deploy_%RANDOM%"
+set "TEMP_ARCHIVE=deploy_%RANDOM%.tar.gz"
 
-echo Creating temp directory...
+echo 正在创建临时目录...
 mkdir "%TEMP_DIR%" 2>nul
 if not exist "%TEMP_DIR%" (
-    echo [ERROR] Failed to create temp directory
+    echo [错误] 创建临时目录失败
     echo.
     pause
     goto main_menu_level1
 )
 
-echo Copying files to temp directory...
+echo 正在复制 JAR 文件...
 copy /Y "app-bootstrap\build\libs\vertex-backend.jar" "%TEMP_DIR%\" >nul
 if errorlevel 1 goto copy_error
 
-copy /Y "deploy\schema.sql" "%TEMP_DIR%\" >nul
-if errorlevel 1 goto copy_error
-
-copy /Y "deploy\remote\docker-compose.yml" "%TEMP_DIR%\" >nul
-if errorlevel 1 goto copy_error
-
-copy /Y "deploy\remote\Dockerfile" "%TEMP_DIR%\" >nul
-if errorlevel 1 goto copy_error
-
-echo [DONE] Files copied
+echo 正在复制其他文件...
+for %%F in (deploy\schema.sql deploy\remote\docker-compose.yml deploy\remote\Dockerfile) do (
+    copy /Y "%%~F" "%TEMP_DIR%\" >nul
+    if errorlevel 1 goto copy_error
+)
+echo [完成] 文件复制完成
 echo.
 
-echo Checking tar command...
+echo 正在检查 tar 命令...
 where tar >nul 2>&1
 if errorlevel 1 (
-    echo [WARNING] tar not found, using traditional upload
+    echo [警告] 未检测到 tar，将使用逐文件上传方式
     goto traditional_upload
 )
 
-echo Packing files...
+echo 正在打包文件...
 tar -czf "%TEMP_ARCHIVE%" -C "%TEMP_DIR%" .
 if errorlevel 1 (
-    echo [WARNING] Pack failed, using traditional upload
+    echo [警告] 打包失败，将使用逐文件上传方式
     del "%TEMP_ARCHIVE%" 2>nul
     goto traditional_upload
 )
-echo [DONE] Pack complete
+echo [完成] 打包完成
 echo.
 
-echo [4/4] Uploading to server...
+echo [4/4] 正在上传至服务器...
 echo ----------------------------------------
-echo NOTE: Using SSH key authentication; server password should not be required once key is configured
-echo.
-
-echo Uploading archive...
-echo Local archive: %TEMP_ARCHIVE%
+echo 本地压缩包：%TEMP_ARCHIVE%
 scp %SSH_OPTIONS% "%TEMP_ARCHIVE%" %SERVER_USER%@%SERVER_IP%:/tmp/
 if errorlevel 1 (
-    echo [ERROR] Upload failed
+    echo [错误] 上传压缩包失败
     del "%TEMP_ARCHIVE%" 2>nul
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
-echo [DONE] Upload complete
+echo [完成] 上传成功
 echo.
 
-echo Extracting on server...
-echo Target path: %SERVER_PATH%
-echo Archive name: %TEMP_ARCHIVE%
-ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "echo '[Step 1/6] Verifying uploaded archive...' && ls -lh /tmp/%TEMP_ARCHIVE% && echo '[Step 2/6] Creating target directory...' && mkdir -p %SERVER_PATH% && echo '[Step 3/6] Listing files before extract...' && ls -l %SERVER_PATH%/ 2>/dev/null || echo '  Directory is empty or new' && echo '[Step 4/6] Removing old files...' && cd %SERVER_PATH% && rm -f vertex-backend.jar schema.sql docker-compose.yml Dockerfile && echo '[Step 5/6] Extracting archive...' && tar -xzvf /tmp/%TEMP_ARCHIVE% && echo '[Step 6/6] Verifying extracted files...' && ls -lh %SERVER_PATH%/ && echo '[Cleanup] Removing temp archive...' && rm -f /tmp/%TEMP_ARCHIVE% && echo '[SUCCESS] All operations completed'"
+echo 正在服务器端解压并替换文件...
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "echo '[步骤 1/6] 校验上传的压缩包...' && ls -lh /tmp/%TEMP_ARCHIVE% && echo '[步骤 2/6] 创建目标目录...' && mkdir -p %SERVER_PATH% && echo '[步骤 3/6] 列出解压前目录内容...' && ls -l %SERVER_PATH%/ 2>/dev/null || echo '  目录为空或尚未创建' && echo '[步骤 4/6] 清理旧文件...' && cd %SERVER_PATH% && rm -f vertex-backend.jar schema.sql docker-compose.yml Dockerfile && echo '[步骤 5/6] 解压新的部署包...' && tar -xzvf /tmp/%TEMP_ARCHIVE% && echo '[步骤 6/6] 验证解压结果...' && ls -lh %SERVER_PATH%/ && echo '[清理] 删除服务器临时压缩包...' && rm -f /tmp/%TEMP_ARCHIVE% && echo '[成功] 所有操作已完成'"
 if errorlevel 1 (
-    echo [ERROR] Extract failed
+    echo [错误] 服务器解压或替换失败
     del "%TEMP_ARCHIVE%" 2>nul
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
-echo [DONE] Extract complete
-
+echo [完成] 服务器处理成功
 echo.
-echo Cleaning temp files...
+
+echo 正在清理本地临时文件...
 del "%TEMP_ARCHIVE%" 2>nul
 rd /s /q "%TEMP_DIR%" 2>nul
 goto upload_success
 
 :traditional_upload
 echo.
-echo Using traditional upload (multiple SSH connections if not using key)
+echo 使用逐文件上传模式（在缺少 tar 或打包失败时启用）
 echo.
 
-echo Creating server directory...
+echo 正在创建服务器目录...
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "mkdir -p %SERVER_PATH%"
 if errorlevel 1 (
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
 
-echo Uploading vertex-backend.jar...
-scp %SSH_OPTIONS% "%TEMP_DIR%\vertex-backend.jar" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
-if errorlevel 1 (
-    rd /s /q "%TEMP_DIR%" 2>nul
-    goto upload_error
-)
-
-echo Uploading schema.sql...
-scp %SSH_OPTIONS% "%TEMP_DIR%\schema.sql" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
-if errorlevel 1 (
-    rd /s /q "%TEMP_DIR%" 2>nul
-    goto upload_error
-)
-
-echo Uploading docker-compose.yml...
-scp %SSH_OPTIONS% "%TEMP_DIR%\docker-compose.yml" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
-if errorlevel 1 (
-    rd /s /q "%TEMP_DIR%" 2>nul
-    goto upload_error
-)
-
-echo Uploading Dockerfile...
-scp %SSH_OPTIONS% "%TEMP_DIR%\Dockerfile" %SERVER_USER%@%SERVER_IP%:%SERVER_PATH%/
-if errorlevel 1 (
-    rd /s /q "%TEMP_DIR%" 2>nul
-    goto upload_error
+for %%F in (vertex-backend.jar schema.sql docker-compose.yml Dockerfile) do (
+    call :scp_upload_helper "%TEMP_DIR%\%%~F" "%SERVER_PATH%/"
+    if errorlevel 1 (
+        rd /s /q "%TEMP_DIR%" 2>nul
+        goto upload_error
+    )
 )
 
 rd /s /q "%TEMP_DIR%" 2>nul
 goto upload_success
 
+:scp_upload_helper
+set "LOCAL_FILE=%~1"
+set "REMOTE_DIR=%~2"
+if "%REMOTE_DIR%"=="" set "REMOTE_DIR=%SERVER_PATH%/"
+set "DISPLAY_NAME=%~nx1"
+
+if not exist "%LOCAL_FILE%" (
+    echo [错误] 未找到待上传文件：%LOCAL_FILE%
+    exit /b 1
+)
+
+echo 正在上传 %DISPLAY_NAME%...
+scp %SSH_OPTIONS% "%LOCAL_FILE%" %SERVER_USER%@%SERVER_IP%:"%REMOTE_DIR%%DISPLAY_NAME%"
+if errorlevel 1 (
+    echo [错误] 上传失败：%DISPLAY_NAME%
+    exit /b 1
+)
+echo [完成] %DISPLAY_NAME% 上传完成
+exit /b 0
+
 :upload_success
 echo.
 echo ========================================
-echo [DONE] All files uploaded successfully
+echo [完成] 文件上传与同步成功
 echo ========================================
 echo.
 pause
@@ -225,23 +216,23 @@ goto main_menu_level1
 cls
 echo.
 echo ========================================
-echo Vertex Backend Server Management
+echo Vertex Backend 服务器管理
 echo ========================================
 echo.
-echo Server: %SERVER_USER%@%SERVER_IP%
-echo Deploy path: %SERVER_PATH%
+echo 服务器：%SERVER_USER%@%SERVER_IP%
+echo 部署目录：%SERVER_PATH%
 echo.
 echo ========================================
-echo Main Menu
+echo 主菜单
 echo ========================================
 echo.
-echo 1. Deployment and Update       - Build, upload and rebuild services
-echo 2. Monitoring                  - View logs and check status
-echo 3. Control                     - Restart and stop services
-echo 4. Manual Guide                - Show manual commands
-echo 5. Exit
+echo 1. 部署与更新          - 构建、上传并重建服务
+echo 2. 监控                - 查看日志与状态
+echo 3. 控制                - 重启或停止服务
+echo 4. 手动指令            - 查看常用命令
+echo 5. 退出
 echo.
-set /p CHOICE="Enter option (1-5): "
+set /p CHOICE="请输入选项 (1-5)： "
 
 if "%CHOICE%"=="" goto main_menu_level1
 if "%CHOICE%"=="1" goto menu_deployment
@@ -252,7 +243,7 @@ if "%CHOICE%"=="5" goto end_script
 
 cls
 echo.
-echo [ERROR] Invalid option
+echo [错误] 无效选项
 echo.
 timeout /t 2 >nul
 goto main_menu_level1
@@ -261,19 +252,19 @@ goto main_menu_level1
 cls
 echo.
 echo ========================================
-echo Deployment and Update
+echo 部署与更新
 echo ========================================
 echo.
-echo Server: %SERVER_USER%@%SERVER_IP%
-echo Deploy path: %SERVER_PATH%
+echo 服务器：%SERVER_USER%@%SERVER_IP%
+echo 部署目录：%SERVER_PATH%
 echo.
-echo 1. Build and Upload JAR                 - Build locally and upload to server
-echo 2. Update Backend Only                  - Rebuild backend and start [MOST USED]
-echo 3. Rebuild All Services                 - Rebuild all and start (keeps data)
-echo 4. Rebuild All Services (Delete All Data) - Full reset with data wipe
-echo 0. Return to Main Menu
+echo 1. 构建并上传 JAR               - 本地构建并上传至服务器
+echo 2. 仅更新后端                   - 重建并启动后端（最常用）
+echo 3. 重建所有服务                 - 保留数据的完整重建
+echo 4. 重建所有服务（删除全部数据） - 完全重置并清空数据
+echo 0. 返回主菜单
 echo.
-set /p CHOICE="Enter option (0-4): "
+set /p CHOICE="请输入选项 (0-4)： "
 
 if "%CHOICE%"=="" goto menu_deployment
 if "%CHOICE%"=="1" goto build_and_upload
@@ -284,7 +275,7 @@ if "%CHOICE%"=="0" goto main_menu_level1
 
 cls
 echo.
-echo [ERROR] Invalid option
+echo [错误] 无效选项
 echo.
 timeout /t 2 >nul
 goto menu_deployment
@@ -293,17 +284,17 @@ goto menu_deployment
 cls
 echo.
 echo ========================================
-echo Monitoring
+echo 监控
 echo ========================================
 echo.
-echo Server: %SERVER_USER%@%SERVER_IP%
-echo Deploy path: %SERVER_PATH%
+echo 服务器：%SERVER_USER%@%SERVER_IP%
+echo 部署目录：%SERVER_PATH%
 echo.
-echo 1. View Logs                  - View real-time application logs
-echo 2. Check Status               - Check service status and resources
-echo 0. Return to Main Menu
+echo 1. 查看日志            - 实时查看应用日志
+echo 2. 检查状态            - 查看服务状态与资源
+echo 0. 返回主菜单
 echo.
-set /p CHOICE="Enter option (0-2): "
+set /p CHOICE="请输入选项 (0-2)： "
 
 if "%CHOICE%"=="" goto menu_monitoring
 if "%CHOICE%"=="1" goto option_logs
@@ -312,7 +303,7 @@ if "%CHOICE%"=="0" goto main_menu_level1
 
 cls
 echo.
-echo [ERROR] Invalid option
+echo [错误] 无效选项
 echo.
 timeout /t 2 >nul
 goto menu_monitoring
@@ -321,18 +312,18 @@ goto menu_monitoring
 cls
 echo.
 echo ========================================
-echo Control
+echo 控制
 echo ========================================
 echo.
-echo Server: %SERVER_USER%@%SERVER_IP%
-echo Deploy path: %SERVER_PATH%
+echo 服务器：%SERVER_USER%@%SERVER_IP%
+echo 部署目录：%SERVER_PATH%
 echo.
-echo 1. Restart Backend Only       - Quick restart backend (no rebuild)
-echo 2. Restart All Services       - Restart all services (no rebuild)
-echo 3. Stop All Services          - Stop all running services
-echo 0. Return to Main Menu
+echo 1. 仅重启后端          - 快速重启后端（不重建）
+echo 2. 重启全部服务        - 不重建镜像的整体重启
+echo 3. 停止全部服务        - 停止所有容器
+echo 0. 返回主菜单
 echo.
-set /p CHOICE="Enter option (0-3): "
+set /p CHOICE="请输入选项 (0-3)： "
 
 if "%CHOICE%"=="" goto menu_control
 if "%CHOICE%"=="1" goto option_restart_backend
@@ -342,7 +333,7 @@ if "%CHOICE%"=="0" goto main_menu_level1
 
 cls
 echo.
-echo [ERROR] Invalid option
+echo [错误] 无效选项
 echo.
 timeout /t 2 >nul
 goto menu_control
@@ -351,29 +342,29 @@ goto menu_control
 cls
 echo.
 echo ========================================
-echo Update Backend Only
+echo 仅更新后端
 echo ========================================
 echo.
-echo [SCOPE] Backend service ONLY
-echo [INFO] This will rebuild backend image using new JAR file
-echo [INFO] This will apply backend environment variable changes
-echo [INFO] Will automatically START backend after rebuild
-echo [NOTE] MySQL, Redis, MinIO will NOT be affected
-echo [USE CASE] Use after uploading new JAR (Option 1) or config changes
+echo [范围] 仅影响后端服务
+echo [说明] 使用新的 JAR 构建镜像
+echo [说明] 会应用后端环境变量变更
+echo [说明] 完成后自动启动后端容器
+echo [提示] 不会影响 MySQL / Redis / MinIO
+echo [场景] 上传新 JAR 或修改后端配置后
 echo.
-echo NOTE: Using SSH key authentication; server password should not be required once key is configured
+echo 说明：如已配置 SSH 密钥，通常无需输入密码
 echo.
-echo Updating vertex-backend container...
+echo 正在更新 vertex-backend 容器...
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose up -d --build --force-recreate --no-deps vertex-backend && echo && docker compose ps"
 if errorlevel 1 (
     echo.
-    echo [ERROR] Failed to rebuild and start container
+    echo [错误] 重建或启动容器失败
     echo.
-    echo Troubleshooting:
-    echo 1. Check if JAR file exists on server
-    echo 2. Check if Dockerfile is valid
-    echo 3. Check Docker service is running
+    echo 排查建议：
+    echo 1. 确认服务器上存在最新 JAR
+    echo 2. 检查 Dockerfile 是否可用
+    echo 3. 确认 Docker 服务已启动
 )
 goto after_operation
 
@@ -381,38 +372,39 @@ goto after_operation
 cls
 echo.
 echo ========================================
-echo Rebuild All Services
+echo 重建所有服务
 echo ========================================
 echo.
-echo [SCOPE] ALL services (MySQL + Redis + MinIO + Backend)
-echo [WARNING] This will rebuild and restart ALL services
-echo [INFO] Will automatically START all services after rebuild
-echo [IMPACT] Database connections will be interrupted briefly
-echo [IMPACT] Redis cache will be reset
-echo [IMPACT] MinIO file service will restart
-echo [USE CASE] Use when docker-compose.yml is modified or dependencies need reset
+echo [范围] MySQL + Redis + MinIO + 后端
+echo [警告] 将重建并重启全部服务
+echo [说明] 完成后自动启动所有服务
+echo [影响] 数据库连接会短暂中断
+echo [影响] Redis 缓存会被清空
+echo [影响] MinIO 将重启
+echo [场景] docker-compose.yml 或依赖改动
 echo.
-set /p CONFIRM="Confirm rebuild ALL services? (y/n): "
+set /p CONFIRM="确认重建所有服务？(y/n)： "
 if /i not "%CONFIRM%"=="y" (
     echo.
-    echo Operation cancelled
+    echo 操作已取消
     goto after_operation
 )
 echo.
-echo NOTE: Using SSH key authentication; server password should not be required once key is configured
+echo 说明：如已配置 SSH 密钥，通常无需输入密码
 echo.
-echo Rebuilding all services...
+echo 正在重建所有服务...
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker stop vertex-backend vertex-mysql vertex-redis vertex-minio 2>/dev/null || true && docker rm -f vertex-backend vertex-mysql vertex-redis vertex-minio 2>/dev/null || true && docker compose down 2>/dev/null || true && docker compose up -d --build --force-recreate && echo && docker compose ps"
 if errorlevel 1 (
     echo.
-    echo [ERROR] Failed to rebuild and start services
+    echo [错误] 重建或启动失败
     echo.
-    echo Troubleshooting:
-    echo 1. Check if all required files exist on server
-    echo 2. Check if docker-compose.yml is valid
-    echo 3. Check Docker service is running
-    echo 4. Try manual rebuild: ssh to server and run:
+    echo 排查建议：
+    echo 1. 确认服务器上文件齐全
+    echo 2. 检查 docker-compose.yml 是否有效
+    echo 3. 确认 Docker 服务已启动
+    echo 4. 亦可手动执行：
+    echo    ssh %SERVER_USER%@%SERVER_IP%
     echo    cd %SERVER_PATH% ^&^& docker compose down ^&^& docker compose up -d --build
 )
 goto after_operation
@@ -421,54 +413,54 @@ goto after_operation
 cls
 echo.
 echo ========================================
-echo Rebuild All Services (Delete All Data)
+echo 重建所有服务（删除全部数据）
 echo ========================================
 echo.
-echo [SCOPE] ALL services (MySQL + Redis + MinIO + Backend)
-echo [DANGER] This will DELETE ALL VOLUMES AND DATA
-echo [WARNING] This is a COMPLETE RESET - all data will be lost
-echo [INFO] Will automatically START all services after rebuild
-echo [IMPACT] ALL data in MySQL, Redis, and MinIO will be PERMANENTLY DELETED
-echo [USE CASE] Use only when you want a fresh start or to clear all data
+echo [范围] MySQL + Redis + MinIO + 后端
+echo [危险] 将删除所有卷及数据
+echo [提醒] 这是不可逆的完全重置
+echo [说明] 重建完成后自动启动所有服务
+echo [影响] MySQL / Redis / MinIO 数据将被永久删除
+echo [场景] 需要全新环境或清空数据
 echo.
+echo !!! 警告 !!!
+echo 将永久删除：
+echo   - 所有 MySQL 数据
+echo   - 所有 Redis 数据
+echo   - 所有 MinIO 文件
+echo   - 所有 Docker 卷
 echo.
-echo ^^!^^!^^! WARNING ^^!^^!^^!
-echo This will PERMANENTLY DELETE:
-echo   - All MySQL database data
-echo   - All Redis cache data
-echo   - All MinIO stored files
-echo   - All Docker volumes
+echo 此操作不可撤销。
 echo.
-echo This action CANNOT BE UNDONE.
-echo.
-set /p CONFIRM="Type 'DELETE' (in uppercase) to confirm: "
+set /p CONFIRM="请输入 DELETE（大写）以确认： "
 if not "%CONFIRM%"=="DELETE" (
     echo.
-    echo [CANCELLED] Operation cancelled - input did not match 'DELETE'
+    echo [已取消] 输入不匹配，操作终止
     goto after_operation
 )
 echo.
-set /p CONFIRM2="Are you absolutely sure? (y/n): "
+set /p CONFIRM2="请再次确认 (y/n)： "
 if /i not "%CONFIRM2%"=="y" (
     echo.
-    echo Operation cancelled
+    echo 操作已取消
     goto after_operation
 )
 echo.
-echo NOTE: Using SSH key authentication; server password should not be required once key is configured
+echo 说明：如已配置 SSH 密钥，通常无需输入密码
 echo.
-echo Removing all services and volumes...
+echo 正在删除所有卷并重建...
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose down -v && echo && echo 'All volumes deleted.' && echo 'Rebuilding all services...' && echo && docker compose up -d --build --force-recreate && echo && docker compose ps"
 if errorlevel 1 (
     echo.
-    echo [ERROR] Failed to rebuild and start services
+    echo [错误] 重建失败
     echo.
-    echo Troubleshooting:
-    echo 1. Check if all required files exist on server
-    echo 2. Check if docker-compose.yml is valid
-    echo 3. Check Docker service is running
-    echo 4. Try manual rebuild: ssh to server and run:
+    echo 排查建议：
+    echo 1. 确认服务器上文件齐全
+    echo 2. 检查 docker-compose.yml 是否有效
+    echo 3. 确认 Docker 服务已启动
+    echo 4. 亦可手动执行：
+    echo    ssh %SERVER_USER%@%SERVER_IP%
     echo    cd %SERVER_PATH% ^&^& docker compose down -v ^&^& docker compose up -d --build
 )
 goto after_operation
@@ -477,23 +469,22 @@ goto after_operation
 cls
 echo.
 echo ========================================
-echo Restart Backend Only
+echo 仅重启后端
 echo ========================================
 echo.
-echo [SCOPE] Backend service ONLY
-echo [INFO] This will restart the backend container
-echo [NOTE] Will NOT rebuild image or use new JAR
-echo [NOTE] Will NOT apply environment variable changes
-echo [NOTE] MySQL, Redis, MinIO will NOT be affected
-echo [USE CASE] Use this only if backend is stuck or frozen
+echo [范围] 仅影响后端服务
+echo [说明] 仅重启容器，不会使用新 JAR
+echo [说明] 不会应用配置变更
+echo [提示] 不影响 MySQL / Redis / MinIO
+echo [场景] 后端卡死但无需重建
 echo.
-echo Restarting backend...
+echo 正在重启后端...
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose restart vertex-backend && echo && docker compose ps vertex-backend"
 if errorlevel 1 (
     echo.
-    echo [ERROR] Failed to restart container
-    echo Check if the container exists and the service is accessible
+    echo [错误] 重启失败
+    echo 请检查容器是否存在并可访问
 )
 goto after_operation
 
@@ -501,30 +492,29 @@ goto after_operation
 cls
 echo.
 echo ========================================
-echo Restart All Services
+echo 重启全部服务
 echo ========================================
 echo.
-echo [SCOPE] ALL services (MySQL + Redis + MinIO + Backend)
-echo [INFO] This will restart all running services
-echo [NOTE] Will NOT rebuild images or use new JAR
-echo [NOTE] Will NOT apply configuration changes
-echo [IMPACT] Brief interruption to all services
-echo [USE CASE] Use when all services are stuck or need quick restart
+echo [范围] MySQL + Redis + MinIO + 后端
+echo [说明] 仅重启，不会重建镜像
+echo [说明] 不会应用配置或 JAR 变更
+echo [影响] 所有服务短暂中断
+echo [场景] 所有服务卡死或需要快速重启
 echo.
-set /p CONFIRM="Confirm restart ALL services? (y/n): "
+set /p CONFIRM="确认重启全部服务？(y/n)： "
 if /i not "%CONFIRM%"=="y" (
     echo.
-    echo Operation cancelled
+    echo 操作已取消
     goto after_operation
 )
 echo.
-echo Restarting all services...
+echo 正在重启所有服务...
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose restart && echo && docker compose ps"
 if errorlevel 1 (
     echo.
-    echo [ERROR] Failed to restart services
-    echo Check the error messages above
+    echo [错误] 重启失败
+    echo 请参考上方错误信息
 )
 goto after_operation
 
@@ -532,11 +522,10 @@ goto after_operation
 cls
 echo.
 echo ========================================
-echo View Logs
+echo 查看日志
 echo ========================================
 echo.
-echo [INFO] Showing real-time application logs
-echo [INFO] Press Ctrl+C to exit
+echo [信息] 正在输出实时日志，按 Ctrl+C 退出
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose logs -f vertex-backend"
 goto after_operation
@@ -545,10 +534,10 @@ goto after_operation
 cls
 echo.
 echo ========================================
-echo Check Status
+echo 检查状态
 echo ========================================
 echo.
-echo [INFO] Checking service status and resource usage
+echo [信息] 查看服务状态与资源占用
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose ps && echo && echo 'Resource usage:' && docker stats --no-stream vertex-backend 2>/dev/null || echo '  Container not running'"
 goto after_operation
@@ -557,25 +546,25 @@ goto after_operation
 cls
 echo.
 echo ========================================
-echo Stop All Services
+echo 停止全部服务
 echo ========================================
 echo.
-echo [WARNING] This will stop all services (Backend, MySQL, Redis, MinIO)
-echo [NOTE] Data volumes will be preserved
+echo [警告] 将停止后端、MySQL、Redis、MinIO
+echo [说明] 数据卷会被保留
 echo.
-set /p CONFIRM="Confirm stop? (y/n): "
+set /p CONFIRM="确认停止？(y/n)： "
 if /i not "%CONFIRM%"=="y" (
     echo.
-    echo Operation cancelled
+    echo 操作已取消
     goto after_operation
 )
 echo.
-echo Stopping all services...
+echo 正在停止所有服务...
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose down"
 if errorlevel 1 (
     echo.
-    echo [ERROR] Failed to stop services
-    echo Check the error messages above
+    echo [错误] 停止失败
+    echo 请参考上方错误信息
 )
 goto after_operation
 
@@ -583,51 +572,51 @@ goto after_operation
 cls
 echo.
 echo ========================================
-echo Manual Guide
+echo 手动指令指南
 echo ========================================
 echo.
-echo Connect to server:
+echo 连接服务器：
 echo   ssh %SERVER_USER%@%SERVER_IP%
 echo.
-echo Go to deploy directory:
+echo 切换到部署目录：
 echo   cd %SERVER_PATH%
 echo.
-echo Common commands:
-echo   Update backend only:     docker compose up -d --build --force-recreate --no-deps vertex-backend
-echo   Rebuild all services:    docker compose down ^&^& docker compose up -d --build --force-recreate
-echo   Full reset (delete data): docker compose down -v ^&^& docker compose up -d --build --force-recreate
-echo   Restart backend only:    docker compose restart vertex-backend
-echo   Restart all services:    docker compose restart
-echo   View logs:               docker compose logs -f vertex-backend
-echo   Check status:            docker compose ps
-echo   Stop all services:       docker compose down
+echo 常用命令：
+echo   仅更新后端：      docker compose up -d --build --force-recreate --no-deps vertex-backend
+echo   重建所有服务：    docker compose down ^&^& docker compose up -d --build --force-recreate
+echo   完全重置（删数据）：docker compose down -v ^&^& docker compose up -d --build --force-recreate
+echo   仅重启后端：      docker compose restart vertex-backend
+echo   重启全部服务：    docker compose restart
+echo   查看日志：        docker compose logs -f vertex-backend
+echo   检查状态：        docker compose ps
+echo   停止全部服务：    docker compose down
 echo.
-echo Common workflow:
-echo   1. Upload new JAR:       Main Menu ^> 1 ^> 1
-echo   2. Update backend:       Main Menu ^> 1 ^> 2
-echo   3. View logs:            Main Menu ^> 2 ^> 1
+echo 常用流程：
+echo   1. 上传新 JAR：   主菜单 ^> 1 ^> 1
+echo   2. 更新后端：     主菜单 ^> 1 ^> 2
+echo   3. 查看日志：     主菜单 ^> 2 ^> 1
 echo.
-echo Rebuild all workflow:
-echo   1. Upload new JAR:       Main Menu ^> 1 ^> 1
-echo   2. Rebuild all:          Main Menu ^> 1 ^> 3 (keeps data)
-echo   3. Check status:         Main Menu ^> 2 ^> 2
+echo 重建全量流程：
+echo   1. 上传新 JAR：   主菜单 ^> 1 ^> 1
+echo   2. 重建全部：     主菜单 ^> 1 ^> 3（保留数据）
+echo   3. 检查状态：     主菜单 ^> 2 ^> 2
 echo.
-echo Full reset workflow:
-echo   1. Upload new JAR:       Main Menu ^> 1 ^> 1
-echo   2. Full reset:           Main Menu ^> 1 ^> 4 (DELETES ALL DATA)
-echo   3. Check status:         Main Menu ^> 2 ^> 2
+echo 完全重置流程：
+echo   1. 上传新 JAR：   主菜单 ^> 1 ^> 1
+echo   2. 全量重置：     主菜单 ^> 1 ^> 4（清空数据）
+echo   3. 检查状态：     主菜单 ^> 2 ^> 2
 echo.
-echo Troubleshooting:
-echo   Backend stuck:           Main Menu ^> 3 ^> 1 (restart backend only)
-echo   All services stuck:      Main Menu ^> 3 ^> 2 (restart all)
-echo   Config changes:          Main Menu ^> 1 ^> 2 (backend) or ^> 1 ^> 3 (all)
+echo 故障排查：
+echo   后端卡死：       主菜单 ^> 3 ^> 1（仅重启后端）
+echo   所有服务卡死：   主菜单 ^> 3 ^> 2（重启全部）
+echo   配置变更：       主菜单 ^> 1 ^> 2（后端）或 ^> 1 ^> 3（全部）
 echo.
 goto after_operation
 
 :after_operation
 echo.
 echo ----------------------------------------
-set /p CONTINUE="Continue other operations? (y/n): "
+set /p CONTINUE="是否继续执行其他操作？(y/n)： "
 if /i "%CONTINUE%"=="y" (
     goto main_menu_level1
 )
@@ -637,14 +626,15 @@ goto end_script
 cls
 echo.
 echo ========================================
-echo Thank you for using!
+echo 感谢使用 Vertex Backend 部署工具！
 echo ========================================
 echo.
+if defined RESTORE_CP chcp %RESTORE_CP% >nul
 pause
 exit /b 0
 
 :copy_error
-echo [ERROR] Failed to copy files
+echo [错误] 复制文件失败
 rd /s /q "%TEMP_DIR%" 2>nul
 echo.
 pause
@@ -654,18 +644,17 @@ goto main_menu_level1
 cls
 echo.
 echo ========================================
-echo [ERROR] Upload failed
+echo [错误] 上传失败
 echo ========================================
 echo.
-echo Troubleshooting:
-echo 1. Check network connection
-echo 2. Verify server IP: %SERVER_IP%
-echo 3. Verify SSH key configuration (or password if you still use it)
-echo 4. Check OpenSSH client installed
-echo    Enable in Windows Settings
-echo    Or install Git for Windows
+echo 排查建议：
+echo 1. 检查本地网络连接
+echo 2. 核对服务器 IP：%SERVER_IP%
+echo 3. 确认 SSH 密钥或密码配置正确
+echo 4. 确认已安装并启用 OpenSSH 客户端（或安装 Git for Windows）
 echo.
-echo Press any key to return...
+del "%TEMP_ARCHIVE%" 2>nul
+rd /s /q "%TEMP_DIR%" 2>nul
+echo 按任意键返回...
 pause >nul
 goto main_menu_level1
-
