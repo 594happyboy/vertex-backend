@@ -57,10 +57,10 @@ class DocumentController(
     @PostMapping(consumes = ["multipart/form-data"])
     fun createDocument(
             @Parameter(description = "文档标题，必填", required = true)
-            @RequestPart("title")
+            @RequestParam("title")
             title: String,
             @Parameter(description = "分组ID，可选", required = false)
-            @RequestPart("groupId", required = false)
+            @RequestParam("groupId", required = false)
             groupId: Long?,
             @Parameter(description = "文档文件，必填", required = true)
             @RequestPart("file")
@@ -78,10 +78,10 @@ class DocumentController(
             @RequestPart("file")
             file: MultipartFile,
             @Parameter(description = "分组ID，可选", required = false)
-            @RequestPart("groupId", required = false)
+            @RequestParam("groupId", required = false)
             groupId: Long?,
             @Parameter(description = "文档标题，可选；不传则使用文件名", required = false)
-            @RequestPart("title", required = false)
+            @RequestParam("title", required = false)
             title: String?
     ): ApiResponse<DocumentDetail> {
         val docTitle =
