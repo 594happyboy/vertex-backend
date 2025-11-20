@@ -2,6 +2,7 @@ dependencies {
     // 依赖内部模块（已包含 MyBatis Plus、Swagger 等）
     implementation(project(":common"))
     implementation(project(":module-file"))
+    implementation(project(":module-search"))
     
     // Spring Boot
     implementation("org.springframework.boot:spring-boot-starter-web")

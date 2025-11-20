@@ -14,6 +14,7 @@ import com.zzy.file.service.FileReferenceService
 import com.zzy.file.entity.ReferenceType
 import com.zzy.file.mapper.FileMapper
 import com.zzy.common.pagination.*
+import com.zzy.search.service.AsyncDocumentSearchIndexService
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -32,7 +33,8 @@ class DocumentService(
     private val folderService: com.zzy.file.service.FolderService,
     private val fileReferenceService: FileReferenceService,
     private val asyncFileReferenceService: AsyncFileReferenceService,
-    private val fileMapper: FileMapper
+    private val fileMapper: FileMapper,
+    private val asyncDocumentSearchIndexService: AsyncDocumentSearchIndexService
 ) {
     
     private val logger = LoggerFactory.getLogger(DocumentService::class.java)
@@ -223,20 +225,37 @@ class DocumentService(
         )
         logger.debug("添加文档文件引用: documentId={}, fileId={}", document.id, fileResponse.id)
         
-        // 4. 如果是Markdown文件，异步同步文档内容中的文件引用
-        if (extension == "md") {
+        // 4. 根据文件类型异步同步引用并索引
+        if (extension == "md" || extension == "txt") {
             try {
                 val content = file.inputStream.bufferedReader().use { it.readText() }
-                // 使用异步方法，不阻塞主流程
-                asyncFileReferenceService.syncDocumentContentReferencesAsync(document.id!!, content)
-                    .exceptionally { e ->
-                        logger.warn("异步同步文档内容引用失败: documentId={}", document.id, e)
-                        null
-                    }
-                logger.debug("已提交文档内容引用异步同步任务: documentId={}", document.id)
+                
+                // 异步同步文档内容中的文件引用（仅 md）
+                if (extension == "md") {
+                    asyncFileReferenceService.syncDocumentContentReferencesAsync(document.id!!, content)
+                        .exceptionally { e ->
+                            logger.warn("异步同步文档内容引用失败: documentId={}", document.id, e)
+                            null
+                        }
+                    logger.debug("已提交文档内容引用异步同步任务: documentId={}", document.id)
+                }
+                
+                asyncDocumentSearchIndexService.indexDocumentAsync(
+                    docId = document.id!!,
+                    userId = document.userId,
+                    groupId = document.groupId,
+                    title = document.title,
+                    content = content,
+                    createdAt = document.createdAt,
+                    updatedAt = document.updatedAt
+                )
+                logger.debug("已提交文档索引任务: documentId={}", document.id)
             } catch (e: Exception) {
-                logger.warn("读取文档内容失败，跳过引用同步: documentId={}", document.id, e)
+                logger.warn("读取文档内容失败，改为仅索引标题: documentId={}", document.id, e)
+                indexTitleOnly(document)
             }
+        } else {
+            indexTitleOnly(document)
         }
         
         // 清除缓存
@@ -344,20 +363,35 @@ class DocumentService(
         )
         logger.debug("添加新文件引用: documentId={}, newFileId={}", id, fileResponse.id)
         
-        // 如果是Markdown文件，异步同步文档内容中的文件引用
-        if (extension == "md") {
+        if (extension == "md" || extension == "txt") {
             try {
                 val content = file.inputStream.bufferedReader().use { it.readText() }
-                // 使用异步方法，不阻塞主流程
-                asyncFileReferenceService.syncDocumentContentReferencesAsync(id, content)
-                    .exceptionally { e ->
-                        logger.warn("异步同步文档内容引用失败: documentId={}", id, e)
-                        null
-                    }
-                logger.debug("已提交文档内容引用异步同步任务: documentId={}", id)
+                
+                if (extension == "md") {
+                    asyncFileReferenceService.syncDocumentContentReferencesAsync(id, content)
+                        .exceptionally { e ->
+                            logger.warn("异步同步文档内容引用失败: documentId={}", id, e)
+                            null
+                        }
+                    logger.debug("已提交文档内容引用异步同步任务: documentId={}", id)
+                }
+                
+                asyncDocumentSearchIndexService.indexDocumentAsync(
+                    docId = id,
+                    userId = document.userId,
+                    groupId = document.groupId,
+                    title = document.title,
+                    content = content,
+                    createdAt = document.createdAt,
+                    updatedAt = document.updatedAt
+                )
+                logger.debug("已提交文档索引更新任务: documentId={}", id)
             } catch (e: Exception) {
-                logger.warn("读取文档内容失败，跳过引用同步: documentId={}", id, e)
+                logger.warn("读取文档内容失败，改为仅索引标题: documentId={}", id, e)
+                indexTitleOnly(document)
             }
+        } else {
+            indexTitleOnly(document)
         }
         
         // 清除缓存
@@ -403,6 +437,10 @@ class DocumentService(
         documentMapper.softDelete(id)
         logger.info("删除文档: id={}", id)
         
+        // 异步删除文档索引
+        asyncDocumentSearchIndexService.deleteByDocumentIdAsync(id)
+        logger.debug("已提交删除文档索引任务: documentId={}", id)
+        
         // 清除缓存
         directoryTreeService.clearCache(userId)
     }
@@ -412,6 +450,22 @@ class DocumentService(
      */
     private fun getCurrentUserId(): Long {
         return AuthContextHolder.getCurrentUserId()
+    }
+
+    /**
+     * 仅索引标题内容
+     */
+    private fun indexTitleOnly(document: Document) {
+        asyncDocumentSearchIndexService.indexDocumentAsync(
+            docId = document.id!!,
+            userId = document.userId,
+            groupId = document.groupId,
+            title = document.title,
+            content = document.title,
+            createdAt = document.createdAt,
+            updatedAt = document.updatedAt
+        )
+        logger.debug("已提交文档标题索引任务: documentId={}", document.id)
     }
 }
 

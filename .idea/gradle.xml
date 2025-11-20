@@ -12,6 +12,7 @@
             <option value="$PROJECT_DIR$/common" />
             <option value="$PROJECT_DIR$/module-blog" />
             <option value="$PROJECT_DIR$/module-file" />
+            <option value="$PROJECT_DIR$/module-search" />
           </set>
         </option>
       </GradleProjectSettings>

@@ -126,3 +126,36 @@ data class BatchUploadResponse(
     val message: String
 )
 
+/**
+ * 文档搜索请求
+ */
+data class DocumentSearchRequest(
+    val q: String,
+    val groupId: Long? = null,
+    val page: Int = 1,
+    val size: Int = 20
+)
+
+/**
+ * 文档搜索响应
+ */
+data class DocumentSearchResponse(
+    val items: List<DocumentSearchResultItem>,
+    val page: Int,
+    val size: Int,
+    val total: Int? = null
+)
+
+/**
+ * 文档搜索结果项
+ */
+data class DocumentSearchResultItem(
+    val id: Long,
+    val title: String,
+    val groupId: Long?,
+    val snippet: String,
+    val score: Double,
+    val createdAt: String?,
+    val updatedAt: String?
+)
+

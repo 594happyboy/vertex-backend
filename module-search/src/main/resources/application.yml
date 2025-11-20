@@ -1,0 +1,5 @@
+search:
+  db-path: data/search/document-index.db
+  auto-init-schema: true
+  query-timeout: 5000
+  max-query-length: 128
