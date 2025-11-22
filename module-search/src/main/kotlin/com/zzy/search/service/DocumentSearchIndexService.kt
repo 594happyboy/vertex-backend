@@ -238,12 +238,18 @@ class DocumentSearchIndexServiceImpl(
         while (rs.next()) {
             val createdAtStr = rs.getString("created_at")
             val updatedAtStr = rs.getString("updated_at")
-            
+            val groupIdObj = rs.getObject("group_id")
+            val groupId = when (groupIdObj) {
+                null -> null
+                is Number -> groupIdObj.toLong()
+                else -> groupIdObj as? Long
+            }
+
             results.add(
                 SearchResult(
                     docId = rs.getLong("doc_id"),
                     userId = rs.getLong("user_id"),
-                    groupId = rs.getObject("group_id") as Long?,
+                    groupId = groupId,
                     title = rs.getString("title"),
                     snippet = rs.getString("snippet"),
                     score = rs.getDouble("score"),
