@@ -54,5 +54,23 @@ class AsyncConfig {
         executor.initialize()
         return executor
     }
-}
 
+    /**
+     * 批量上传任务执行器
+     */
+    @Bean("batchUploadExecutor")
+    fun batchUploadExecutor(): Executor {
+        val executor = ThreadPoolTaskExecutor()
+        executor.corePoolSize = 2
+        executor.maxPoolSize = 4
+        executor.queueCapacity = 50
+        executor.setThreadNamePrefix("batch-upload-async-")
+        executor.setRejectedExecutionHandler(ThreadPoolExecutor.CallerRunsPolicy())
+        executor.keepAliveSeconds = 60
+        executor.setAllowCoreThreadTimeOut(false)
+        executor.setWaitForTasksToCompleteOnShutdown(true)
+        executor.setAwaitTerminationSeconds(60)
+        executor.initialize()
+        return executor
+    }
+}

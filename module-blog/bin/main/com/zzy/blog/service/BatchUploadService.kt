@@ -2,10 +2,13 @@ package com.zzy.blog.service
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
 import com.zzy.blog.constants.DocumentConstants
+import com.zzy.blog.dto.BatchUploadJobStatus
+import com.zzy.blog.dto.BatchUploadProgressUpdate
 import com.zzy.blog.dto.BatchUploadResponse
 import com.zzy.blog.dto.BatchUploadResultItem
 import com.zzy.blog.entity.Document
 import com.zzy.blog.entity.Group
+import com.zzy.blog.support.FileBackedMultipartFile
 import com.zzy.common.context.AuthContextHolder
 import com.zzy.common.exception.ResourceNotFoundException
 import com.zzy.blog.mapper.DocumentMapper
@@ -17,7 +20,6 @@ import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
 import java.io.ByteArrayInputStream
 import java.io.File
-import java.io.InputStream
 import java.nio.charset.Charset
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.StandardCharsets
@@ -52,75 +54,105 @@ class BatchUploadService(
     @Transactional(rollbackFor = [Exception::class])
     fun batchUpload(file: MultipartFile, parentGroupId: Long?): BatchUploadResponse {
         val userId = getCurrentUserId()
-        
-        // 1. 验证文件
+        validateBatchUploadRequest(file, parentGroupId, userId)
+        return executeBatchUpload(file, parentGroupId, userId, null)
+    }
+
+    @Transactional(rollbackFor = [Exception::class])
+    fun batchUploadWithProgress(
+        file: MultipartFile,
+        parentGroupId: Long?,
+        userId: Long,
+        progressCallback: BatchUploadProgressCallback
+    ): BatchUploadResponse {
+        validateBatchUploadRequest(file, parentGroupId, userId)
+        return executeBatchUpload(file, parentGroupId, userId, progressCallback)
+    }
+
+    internal fun validateBatchUploadRequest(file: MultipartFile, parentGroupId: Long?, userId: Long) {
         validateZipFile(file)
-        
-        // 2. 验证父分组
-        if (parentGroupId != null) {
-            val parentGroup = groupMapper.selectById(parentGroupId)
-            if (parentGroup == null || parentGroup.userId != userId) {
-                throw ResourceNotFoundException("父分组不存在或无权访问")
-            }
-        }
-        
-        // 3. 解压ZIP文件到临时目录
+        validateParentGroup(parentGroupId, userId)
+    }
+
+    private fun executeBatchUpload(
+        file: MultipartFile,
+        parentGroupId: Long?,
+        userId: Long,
+        progressCallback: BatchUploadProgressCallback?
+    ): BatchUploadResponse {
         val tempDir = Files.createTempDirectory("batch_upload_").toFile()
         val results = mutableListOf<BatchUploadResultItem>()
-        var totalFiles = 0
-        var totalFolders = 0
-        
+        val progress = ProgressContext(progressCallback)
+        progress.stage("任务初始化中")
+
         try {
-            // 解压文件
+            progress.stage("正在解压 ZIP 文件")
             extractZipFile(file, tempDir)
-            
-            // 4. 递归处理文件夹和文件
+
             val rootFiles = tempDir.listFiles()?.filter { !it.name.startsWith(".") } ?: emptyList()
-            
+            if (rootFiles.isEmpty()) {
+                progress.stage("压缩包为空")
+            }
+
             for (rootFile in rootFiles) {
                 if (rootFile.isDirectory) {
-                    val (folders, files) = processDirectory(
-                        rootFile, 
-                        userId, 
-                        parentGroupId, 
-                        "",
-                        results
+                    val currentPath = rootFile.name
+                    progress.incrementTotalFolders()
+                    progress.stage("正在处理分组: $currentPath")
+                    processDirectory(
+                        dir = rootFile,
+                        userId = userId,
+                        parentGroupId = parentGroupId,
+                        pathPrefix = "",
+                        results = results,
+                        progress = progress
                     )
-                    totalFolders += folders
-                    totalFiles += files
                 } else {
-                    // 根目录下的文件
-                    val success = processFile(rootFile, userId, parentGroupId, rootFile.name, results)
-                    if (success) totalFiles++
+                    progress.incrementTotalFiles()
+                    progress.stage("正在处理文件: ${rootFile.name}")
+                    processFile(
+                        file = rootFile,
+                        userId = userId,
+                        groupId = parentGroupId,
+                        path = rootFile.name,
+                        results = results,
+                        progress = progress
+                    )
                 }
             }
-            
-            // 5. 清除缓存
+
             directoryTreeService.clearCache(userId)
-            
+
             val successCount = results.count { it.success }
             val failedCount = results.size - successCount
-            
+
             logger.info(
                 "批量上传完成: userId={}, totalFolders={}, totalFiles={}, success={}, failed={}",
-                userId, totalFolders, totalFiles, successCount, failedCount
+                userId,
+                progress.totalFolders,
+                progress.totalFiles,
+                progress.successCount,
+                progress.failedCount
             )
-            
+
+            val message = if (failedCount == 0) "批量上传成功" else "批量上传完成，部分失败"
+            progress.stage(message)
+
             return BatchUploadResponse(
                 success = failedCount == 0,
-                totalFiles = totalFiles,
-                totalFolders = totalFolders,
-                successCount = successCount,
-                failedCount = failedCount,
+                totalFiles = progress.totalFiles,
+                totalFolders = progress.totalFolders,
+                successCount = progress.successCount,
+                failedCount = progress.failedCount,
                 items = results,
-                message = if (failedCount == 0) "批量上传成功" else "批量上传完成，部分失败"
+                message = message
             )
-            
+
         } catch (e: Exception) {
+            progress.stage("批量上传失败: ${e.message}")
             logger.error("批量上传失败", e)
             throw RuntimeException("批量上传失败: ${e.message}", e)
         } finally {
-            // 清理临时文件
             try {
                 tempDir.deleteRecursively()
             } catch (e: Exception) {
@@ -144,6 +176,17 @@ class BatchUploadService(
         val filename = file.originalFilename ?: ""
         if (!filename.endsWith(".zip", ignoreCase = true)) {
             throw IllegalArgumentException("只支持ZIP格式的压缩包")
+        }
+    }
+
+    private fun validateParentGroup(parentGroupId: Long?, userId: Long) {
+        if (parentGroupId == null) {
+            return
+        }
+
+        val parentGroup = groupMapper.selectById(parentGroupId)
+        if (parentGroup == null || parentGroup.userId != userId) {
+            throw ResourceNotFoundException("父分组不存在或无权访问")
         }
     }
     
@@ -214,24 +257,21 @@ class BatchUploadService(
     
     /**
      * 递归处理目录
-     * @return Pair<folders, files> 处理的文件夹数和文件数
      */
     private fun processDirectory(
         dir: File,
         userId: Long,
         parentGroupId: Long?,
         pathPrefix: String,
-        results: MutableList<BatchUploadResultItem>
-    ): Pair<Int, Int> {
-        var folderCount = 0
-        var fileCount = 0
-        
+        results: MutableList<BatchUploadResultItem>,
+        progress: ProgressContext
+    ) {
         val currentPath = if (pathPrefix.isEmpty()) dir.name else "$pathPrefix/${dir.name}"
-        
+
         try {
-            // 1. 创建或获取分组
+            progress.stage("正在处理分组: $currentPath")
             val groupId = createOrGetGroup(dir.name, userId, parentGroupId)
-            
+
             results.add(
                 BatchUploadResultItem(
                     type = "group",
@@ -242,22 +282,36 @@ class BatchUploadService(
                     message = "分组创建成功"
                 )
             )
-            folderCount++
-            
-            // 2. 处理子文件和子文件夹
+            progress.recordGroupResult(true, "分组创建成功: $currentPath")
+
             val children = dir.listFiles()?.filter { !it.name.startsWith(".") } ?: emptyList()
-            
+
             for (child in children) {
                 if (child.isDirectory) {
-                    val (subFolders, subFiles) = processDirectory(child, userId, groupId, currentPath, results)
-                    folderCount += subFolders
-                    fileCount += subFiles
+                    progress.incrementTotalFolders()
+                    processDirectory(
+                        dir = child,
+                        userId = userId,
+                        parentGroupId = groupId,
+                        pathPrefix = currentPath,
+                        results = results,
+                        progress = progress
+                    )
                 } else {
-                    val success = processFile(child, userId, groupId, "$currentPath/${child.name}", results)
-                    if (success) fileCount++
+                    val path = "$currentPath/${child.name}"
+                    progress.incrementTotalFiles()
+                    progress.stage("正在处理文件: $path")
+                    processFile(
+                        file = child,
+                        userId = userId,
+                        groupId = groupId,
+                        path = path,
+                        results = results,
+                        progress = progress
+                    )
                 }
             }
-            
+
         } catch (e: Exception) {
             logger.error("处理文件夹失败: {}", currentPath, e)
             results.add(
@@ -270,9 +324,8 @@ class BatchUploadService(
                     message = "创建失败: ${e.message}"
                 )
             )
+            progress.recordGroupResult(false, "分组创建失败: ${e.message}")
         }
-        
-        return Pair(folderCount, fileCount)
     }
     
     /**
@@ -284,7 +337,8 @@ class BatchUploadService(
         userId: Long,
         groupId: Long?,
         path: String,
-        results: MutableList<BatchUploadResultItem>
+        results: MutableList<BatchUploadResultItem>,
+        progress: ProgressContext
     ): Boolean {
         try {
             val fileName = file.name
@@ -344,6 +398,7 @@ class BatchUploadService(
             
             documentMapper.insert(document)
             
+            val message = "文档创建成功"
             results.add(
                 BatchUploadResultItem(
                     type = "document",
@@ -351,14 +406,16 @@ class BatchUploadService(
                     path = path,
                     id = document.id,
                     success = true,
-                    message = "文档创建成功"
+                    message = message
                 )
             )
+            progress.recordDocumentResult(true, "$message: $path")
             
             return true
             
         } catch (e: Exception) {
             logger.error("处理文件失败: {}", path, e)
+            val message = "创建失败: ${e.message}"
             results.add(
                 BatchUploadResultItem(
                     type = "document",
@@ -366,9 +423,10 @@ class BatchUploadService(
                     path = path,
                     id = null,
                     success = false,
-                    message = "创建失败: ${e.message}"
+                    message = message
                 )
             )
+            progress.recordDocumentResult(false, "$message ($path)")
             return false
         }
     }
@@ -380,43 +438,69 @@ class BatchUploadService(
     private fun convertToMultipartFile(file: File): MultipartFile {
         return FileBackedMultipartFile(file)
     }
-    
-    /**
-     * 基于文件的MultipartFile实现
-     * 支持流式读取，不会一次性加载整个文件到内存
-     */
-    private class FileBackedMultipartFile(private val file: File) : MultipartFile {
-        
-        override fun getName(): String = "file"
-        
-        override fun getOriginalFilename(): String = file.name
-        
-        override fun getContentType(): String? {
-            return Files.probeContentType(file.toPath()) ?: "application/octet-stream"
+
+    private class ProgressContext(
+        private val callback: BatchUploadProgressCallback?
+    ) {
+        var totalFiles: Int = 0
+            private set
+        var totalFolders: Int = 0
+            private set
+        var processedFiles: Int = 0
+            private set
+        var successCount: Int = 0
+            private set
+        var failedCount: Int = 0
+            private set
+
+        private var lastMessage: String = ""
+
+        fun incrementTotalFiles() {
+            totalFiles++
+            publish()
         }
-        
-        override fun isEmpty(): Boolean = file.length() == 0L
-        
-        override fun getSize(): Long = file.length()
-        
-        override fun getBytes(): ByteArray {
-            // 仅在需要时才读取整个文件
-            return file.readBytes()
+
+        fun incrementTotalFolders() {
+            totalFolders++
+            publish()
         }
-        
-        override fun getInputStream(): InputStream {
-            // 每次调用都返回新地流，支持多次读取
-            return file.inputStream()
+
+        fun recordDocumentResult(success: Boolean, message: String?) {
+            processedFiles++
+            recordResult(success, message)
         }
-        
-        override fun transferTo(dest: File) {
-            // 使用文件复制，而不是读取到内存
-            file.copyTo(dest, overwrite = true)
+
+        fun recordGroupResult(success: Boolean, message: String?) {
+            recordResult(success, message)
         }
-        
-        override fun transferTo(dest: java.nio.file.Path) {
-            // 使用NIO的文件复制，高效且不占用内存
-            Files.copy(file.toPath(), dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+
+        fun stage(message: String) {
+            if (!message.isNullOrBlank()) {
+                lastMessage = message
+            }
+            publish()
+        }
+
+        private fun recordResult(success: Boolean, message: String?) {
+            if (success) successCount++ else failedCount++
+            if (!message.isNullOrBlank()) {
+                lastMessage = message
+            }
+            publish()
+        }
+
+        private fun publish(status: BatchUploadJobStatus = BatchUploadJobStatus.RUNNING) {
+            callback?.onProgress(
+                BatchUploadProgressUpdate(
+                    status = status,
+                    totalFiles = totalFiles,
+                    totalFolders = totalFolders,
+                    processedFiles = processedFiles,
+                    successCount = successCount,
+                    failedCount = failedCount,
+                    message = lastMessage
+                )
+            )
         }
     }
     /**
@@ -464,4 +548,3 @@ class BatchUploadService(
         return AuthContextHolder.getCurrentUserId()
     }
 }
-

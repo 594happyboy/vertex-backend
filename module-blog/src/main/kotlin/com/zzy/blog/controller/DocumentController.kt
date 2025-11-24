@@ -1,6 +1,7 @@
 package com.zzy.blog.controller
 
 import com.zzy.blog.dto.*
+import com.zzy.blog.service.BatchUploadJobService
 import com.zzy.blog.service.BatchUploadService
 import com.zzy.blog.service.DocumentService
 import com.zzy.common.dto.ApiResponse
@@ -17,7 +18,8 @@ import org.springframework.web.multipart.MultipartFile
 @RequestMapping("/api/documents")
 class DocumentController(
         private val documentService: DocumentService,
-        private val batchUploadService: BatchUploadService
+        private val batchUploadService: BatchUploadService,
+        private val batchUploadJobService: BatchUploadJobService
 ) {
 
     /** 查询文档列表（游标分页） */
@@ -152,5 +154,31 @@ class DocumentController(
     ): ApiResponse<BatchUploadResponse> {
         val result = batchUploadService.batchUpload(file, parentGroupId)
         return ApiResponse.success(result, result.message)
+    }
+
+    /** 发起异步批量上传任务 */
+    @Operation(summary = "异步批量上传文档", description = "后台执行批量上传，并可轮询任务进度")
+    @PostMapping("/batch-upload/async", consumes = ["multipart/form-data"])
+    fun batchUploadAsync(
+            @Parameter(description = "ZIP 压缩包，必填", required = true)
+            @RequestPart("file")
+            file: MultipartFile,
+            @Parameter(description = "父分组ID，可选；null 表示根目录", required = false)
+            @RequestPart("parentGroupId", required = false)
+            parentGroupId: Long?
+    ): ApiResponse<BatchUploadJobCreatedResponse> {
+        val response = batchUploadJobService.startAsyncUpload(file, parentGroupId)
+        return ApiResponse.success(response, "任务已创建")
+    }
+
+    /** 查询异步批量上传进度 */
+    @Operation(summary = "查询批量上传进度", description = "根据 jobId 返回进度信息")
+    @GetMapping("/batch-upload/progress/{jobId}")
+    fun getBatchUploadProgress(
+            @Parameter(description = "任务ID", required = true)
+            @PathVariable jobId: String
+    ): ApiResponse<BatchUploadProgress> {
+        val progress = batchUploadJobService.getProgress(jobId)
+        return ApiResponse.success(progress)
     }
 }
