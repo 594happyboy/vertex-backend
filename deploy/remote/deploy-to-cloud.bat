@@ -16,7 +16,7 @@ cd /d "%~dp0\..\.."
 
 set SERVER_IP=142.171.169.111
 set SERVER_USER=root
-set SERVER_PATH=/opt/vertex-backend
+set SERVER_PATH=/opt/docker/vertex-backend
 
 REM SSH 配置（默认查找 %USERPROFILE%\.ssh 下的常用密钥）
 set "SSH_KEY_DIR=%USERPROFILE%\.ssh"

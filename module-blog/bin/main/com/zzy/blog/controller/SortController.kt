@@ -24,7 +24,7 @@ class SortController(
      * 批量更新分组排序
      */
     @Operation(summary = "批量更新分组排序", description = "批量更新分组的父分组和排序索引")
-    @PostMapping("/groups")
+    @PostMapping("/groups/reorder")
     fun sortGroups(@RequestBody request: GroupSortRequest): ApiResponse<Nothing> {
         sortService.sortGroups(request)
         return ApiResponse.success(message = "排序更新成功")
@@ -34,7 +34,7 @@ class SortController(
      * 批量更新文档排序
      */
     @Operation(summary = "批量更新文档排序", description = "批量更新文档的分组和排序索引")
-    @PostMapping("/documents")
+    @PostMapping("/documents/reorder")
     fun sortDocuments(@RequestBody request: DocumentSortRequest): ApiResponse<Nothing> {
         sortService.sortDocuments(request)
         return ApiResponse.success(message = "排序更新成功")

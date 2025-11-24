@@ -72,7 +72,8 @@ class CorsConfig {
             "Authorization",    // JWT令牌
             "Content-Type",     // 内容类型
             "X-Total-Count",    // 总数（用于分页）
-            "Content-Disposition"  // 文件下载时的文件名
+            "Content-Disposition",  // 文件下载时的文件名
+            "X-New-Access-Token"    // Token刷新时的新AccessToken
         )
         
         // 6. 预检请求的缓存时间（秒）

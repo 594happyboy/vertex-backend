@@ -22,7 +22,7 @@ class DocumentController(
 
     /** 查询文档列表（游标分页） */
     @Operation(summary = "查询文档列表（游标分页）", description = "游标分页查询，支持关键字/分组/排序")
-    @GetMapping
+    @GetMapping("/query")
     fun getDocuments(
             @RequestParam(required = false) q: String?,
             @RequestParam(required = false) groupId: Long?,
@@ -46,7 +46,7 @@ class DocumentController(
 
     /** 获取文档详情 */
     @Operation(summary = "获取文档详情", description = "根据文档ID返回详情")
-    @GetMapping("/{id}")
+    @GetMapping("/details/{id}")
     fun getDocument(@PathVariable id: Long): ApiResponse<DocumentDetail> {
         val document = documentService.getDocument(id)
         return ApiResponse.success(document)
@@ -54,13 +54,13 @@ class DocumentController(
 
     /** 创建文档 */
     @Operation(summary = "创建文档", description = "通过 multipart/form-data 上传文件并创建文档；支持 md/pdf/txt 等")
-    @PostMapping(consumes = ["multipart/form-data"])
+    @PostMapping("/create", consumes = ["multipart/form-data"])
     fun createDocument(
             @Parameter(description = "文档标题，必填", required = true)
-            @RequestPart("title")
+            @RequestParam("title")
             title: String,
             @Parameter(description = "分组ID，可选", required = false)
-            @RequestPart("groupId", required = false)
+            @RequestParam("groupId", required = false)
             groupId: Long?,
             @Parameter(description = "文档文件，必填", required = true)
             @RequestPart("file")
@@ -78,10 +78,10 @@ class DocumentController(
             @RequestPart("file")
             file: MultipartFile,
             @Parameter(description = "分组ID，可选", required = false)
-            @RequestPart("groupId", required = false)
+            @RequestParam("groupId", required = false)
             groupId: Long?,
             @Parameter(description = "文档标题，可选；不传则使用文件名", required = false)
-            @RequestPart("title", required = false)
+            @RequestParam("title", required = false)
             title: String?
     ): ApiResponse<DocumentDetail> {
         val docTitle =
@@ -94,7 +94,7 @@ class DocumentController(
 
     /** 更新文档信息 */
     @Operation(summary = "更新文档信息", description = "更新文档元数据（标题/分组/排序）")
-    @PatchMapping("/{id}")
+    @PatchMapping("/update/{id}")
     fun updateDocument(
             @PathVariable id: Long,
             @RequestBody request: UpdateDocumentRequest
@@ -105,7 +105,7 @@ class DocumentController(
 
     /** 替换文档文件 */
     @Operation(summary = "替换文档文件", description = "仅替换文档文件，校验文件类型")
-    @PatchMapping("/file/{id}", consumes = ["multipart/form-data"])
+    @PatchMapping("/replace-file/{id}", consumes = ["multipart/form-data"])
     fun updateDocumentFile(
             @PathVariable id: Long,
             @Parameter(description = "新文件，必填", required = true)
@@ -133,7 +133,7 @@ class DocumentController(
 
     /** 删除文档 */
     @Operation(summary = "删除文档", description = "软删除文档，并尝试删除关联文件")
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/remove/{id}")
     fun deleteDocument(@PathVariable id: Long): ApiResponse<Nothing> {
         documentService.deleteDocument(id)
         return ApiResponse.success(message = "删除成功")
