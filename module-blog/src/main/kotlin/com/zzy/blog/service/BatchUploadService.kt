@@ -90,6 +90,8 @@ class BatchUploadService(
             extractZipFile(file, tempDir)
 
             val rootFiles = tempDir.listFiles()?.filter { !it.name.startsWith(".") } ?: emptyList()
+            val (totalFolders, totalFiles) = calculateTotals(rootFiles)
+            progress.updateTotals(totalFolders = totalFolders, totalFiles = totalFiles)
             if (rootFiles.isEmpty()) {
                 progress.stage("压缩包为空")
             }
@@ -97,7 +99,6 @@ class BatchUploadService(
             for (rootFile in rootFiles) {
                 if (rootFile.isDirectory) {
                     val currentPath = rootFile.name
-                    progress.incrementTotalFolders()
                     progress.stage("正在处理分组: $currentPath")
                     processDirectory(
                         dir = rootFile,
@@ -108,7 +109,6 @@ class BatchUploadService(
                         progress = progress
                     )
                 } else {
-                    progress.incrementTotalFiles()
                     progress.stage("正在处理文件: ${rootFile.name}")
                     processFile(
                         file = rootFile,
@@ -254,6 +254,26 @@ class BatchUploadService(
 
         throw lastError ?: RuntimeException("ZIP文件解压失败")
     }
+
+    private fun calculateTotals(entries: List<File>): Pair<Int, Int> {
+        var folderCount = 0
+        var fileCount = 0
+
+        fun traverse(file: File) {
+            if (file.name.startsWith(".")) {
+                return
+            }
+            if (file.isDirectory) {
+                folderCount++
+                file.listFiles()?.forEach { traverse(it) }
+            } else {
+                fileCount++
+            }
+        }
+
+        entries.forEach { traverse(it) }
+        return Pair(folderCount, fileCount)
+    }
     
     /**
      * 递归处理目录
@@ -288,7 +308,6 @@ class BatchUploadService(
 
             for (child in children) {
                 if (child.isDirectory) {
-                    progress.incrementTotalFolders()
                     processDirectory(
                         dir = child,
                         userId = userId,
@@ -299,7 +318,6 @@ class BatchUploadService(
                     )
                 } else {
                     val path = "$currentPath/${child.name}"
-                    progress.incrementTotalFiles()
                     progress.stage("正在处理文件: $path")
                     processFile(
                         file = child,
@@ -356,6 +374,7 @@ class BatchUploadService(
                         message = "不支持的文件类型: $extension"
                     )
                 )
+                progress.recordDocumentResult(false, "不支持的文件类型: $extension ($path)")
                 return false
             }
             
@@ -455,13 +474,9 @@ class BatchUploadService(
 
         private var lastMessage: String = ""
 
-        fun incrementTotalFiles() {
-            totalFiles++
-            publish()
-        }
-
-        fun incrementTotalFolders() {
-            totalFolders++
+        fun updateTotals(totalFolders: Int, totalFiles: Int) {
+            this.totalFolders = totalFolders
+            this.totalFiles = totalFiles
             publish()
         }
 
@@ -471,7 +486,10 @@ class BatchUploadService(
         }
 
         fun recordGroupResult(success: Boolean, message: String?) {
-            recordResult(success, message)
+            if (!message.isNullOrBlank()) {
+                lastMessage = message
+            }
+            publish()
         }
 
         fun stage(message: String) {

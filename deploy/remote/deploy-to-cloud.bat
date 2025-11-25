@@ -1,15 +1,8 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-for /f "tokens=2 delims=: " %%a in ('chcp') do set "ORIGINAL_CP=%%a"
-set "ORIGINAL_CP=%ORIGINAL_CP: =%"
-if not "%ORIGINAL_CP%"=="65001" (
-    chcp 65001 >nul
-    set "RESTORE_CP=%ORIGINAL_CP%"
-)
-
 REM ============================================
-REM Vertex Backend - éƒ¨ç½²è„šæœ¬
+REM Vertex Backend - ²¿Êð½Å±¾
 REM ============================================
 
 cd /d "%~dp0\..\.."
@@ -18,7 +11,7 @@ set SERVER_IP=142.171.169.111
 set SERVER_USER=root
 set SERVER_PATH=/opt/docker/vertex-backend
 
-REM SSH é…ç½®ï¼ˆé»˜è®¤æŸ¥æ‰¾ %USERPROFILE%\.ssh ä¸‹çš„å¸¸ç”¨å¯†é’¥ï¼‰
+REM SSH ÅäÖÃ
 set "SSH_KEY_DIR=%USERPROFILE%\.ssh"
 set "SSH_KEY_FILE="
 
@@ -28,10 +21,10 @@ if not defined SSH_KEY_FILE if exist "%SSH_KEY_DIR%\id_ecdsa" set "SSH_KEY_FILE=
 if not defined SSH_KEY_FILE if exist "%SSH_KEY_DIR%\id_dsa" set "SSH_KEY_FILE=%SSH_KEY_DIR%\id_dsa"
 
 if defined SSH_KEY_FILE (
-    echo [ä¿¡æ¯] ä½¿ç”¨ SSH å¯†é’¥ï¼š%SSH_KEY_FILE%
+    echo [Info] SSH Key Found: %SSH_KEY_FILE%
     set "SSH_OPTIONS=-o StrictHostKeyChecking=no -i \"%SSH_KEY_FILE%\" -o IdentitiesOnly=yes -o PreferredAuthentications=publickey -o PasswordAuthentication=no"
 ) else (
-    echo [è­¦å‘Š] åœ¨ %SSH_KEY_DIR% ä¸‹æœªæ‰¾åˆ° SSH ç§é’¥ï¼Œå°†å°è¯•å¯†ç è®¤è¯
+    echo [Warn] SSH Key not found in %SSH_KEY_DIR%, using password auth.
     set "SSH_OPTIONS=-o StrictHostKeyChecking=no"
 )
 
@@ -40,129 +33,129 @@ goto main_menu_level1
 :build_and_upload
 echo.
 echo ========================================
-echo æž„å»ºå¹¶ä¸Šä¼ 
+echo ¹¹½¨²¢ÉÏ´« (Build and Upload)
 echo ========================================
 echo.
-echo å½“å‰å·¥ä½œç›®å½•ï¼š%CD%
+echo µ±Ç°¹¤×÷Ä¿Â¼£º%CD%
 echo.
 
-echo [1/4] æ­£åœ¨æž„å»º JAR æ–‡ä»¶...
+echo [1/4] ÕýÔÚ¹¹½¨ JAR ÎÄ¼þ...
 echo ----------------------------------------
 call gradlew.bat :app-bootstrap:bootJar --no-daemon
 if errorlevel 1 (
-    echo [é”™è¯¯] æž„å»ºå¤±è´¥
+    echo [´íÎó] ¹¹½¨Ê§°Ü
     echo.
     pause
     goto main_menu_level1
 )
-echo [å®Œæˆ] æž„å»ºæˆåŠŸ
+echo [Íê³É] ¹¹½¨³É¹¦
 echo.
 
 if not exist "app-bootstrap\build\libs\vertex-backend.jar" (
-    echo [é”™è¯¯] æœªæ‰¾åˆ°ç”Ÿæˆçš„ JARï¼šapp-bootstrap\build\libs\vertex-backend.jar
+    echo [´íÎó] Î´ÕÒµ½Éú³ÉµÄ JAR£ºapp-bootstrap\build\libs\vertex-backend.jar
     echo.
     pause
     goto main_menu_level1
 )
 
-echo [2/4] æ­£åœ¨æ£€æŸ¥å¿…éœ€æ–‡ä»¶...
+echo [2/4] ÕýÔÚ¼ì²é±ØÐèÎÄ¼þ...
 echo ----------------------------------------
 set "FILES_OK=1"
 for %%F in (deploy\schema.sql deploy\remote\docker-compose.yml deploy\remote\Dockerfile) do (
     if not exist "%%~F" (
-        echo [é”™è¯¯] æœªæ‰¾åˆ°æ–‡ä»¶ï¼š%%~F
+        echo [´íÎó] Î´ÕÒµ½ÎÄ¼þ£º%%~F
         set "FILES_OK=0"
     )
 )
 
 if "!FILES_OK!"=="0" (
     echo.
-    echo [é”™è¯¯] ç¼ºå°‘æ‰€éœ€æ–‡ä»¶ï¼Œæ“ä½œç»ˆæ­¢
+    echo [´íÎó] È±ÉÙËùÐèÎÄ¼þ£¬²Ù×÷ÖÕÖ¹
     echo.
     pause
     goto main_menu_level1
 )
-echo [å®Œæˆ] æ–‡ä»¶æ ¡éªŒé€šè¿‡
+echo [Íê³É] ÎÄ¼þÐ£ÑéÍ¨¹ý
 echo.
 
-echo [3/4] æ­£åœ¨å‡†å¤‡éƒ¨ç½²æ–‡ä»¶...
+echo [3/4] ÕýÔÚ×¼±¸²¿ÊðÎÄ¼þ...
 echo ----------------------------------------
 set "TEMP_DIR=temp_deploy_%RANDOM%"
 set "TEMP_ARCHIVE=deploy_%RANDOM%.tar.gz"
 
-echo æ­£åœ¨åˆ›å»ºä¸´æ—¶ç›®å½•...
+echo ÕýÔÚ´´½¨ÁÙÊ±Ä¿Â¼...
 mkdir "%TEMP_DIR%" 2>nul
 if not exist "%TEMP_DIR%" (
-    echo [é”™è¯¯] åˆ›å»ºä¸´æ—¶ç›®å½•å¤±è´¥
+    echo [´íÎó] ´´½¨ÁÙÊ±Ä¿Â¼Ê§°Ü
     echo.
     pause
     goto main_menu_level1
 )
 
-echo æ­£åœ¨å¤åˆ¶ JAR æ–‡ä»¶...
+echo ÕýÔÚ¸´ÖÆ JAR ÎÄ¼þ...
 copy /Y "app-bootstrap\build\libs\vertex-backend.jar" "%TEMP_DIR%\" >nul
 if errorlevel 1 goto copy_error
 
-echo æ­£åœ¨å¤åˆ¶å…¶ä»–æ–‡ä»¶...
+echo ÕýÔÚ¸´ÖÆÆäËûÎÄ¼þ...
 for %%F in (deploy\schema.sql deploy\remote\docker-compose.yml deploy\remote\Dockerfile) do (
     copy /Y "%%~F" "%TEMP_DIR%\" >nul
     if errorlevel 1 goto copy_error
 )
-echo [å®Œæˆ] æ–‡ä»¶å¤åˆ¶å®Œæˆ
+echo [Íê³É] ÎÄ¼þ¸´ÖÆÍê³É
 echo.
 
-echo æ­£åœ¨æ£€æŸ¥ tar å‘½ä»¤...
+echo ÕýÔÚ¼ì²é tar ÃüÁî...
 where tar >nul 2>&1
 if errorlevel 1 (
-    echo [è­¦å‘Š] æœªæ£€æµ‹åˆ° tarï¼Œå°†ä½¿ç”¨é€æ–‡ä»¶ä¸Šä¼ æ–¹å¼
+    echo [¾¯¸æ] Î´¼ì²âµ½ tar£¬½«Ê¹ÓÃÖðÎÄ¼þÉÏ´«·½Ê½
     goto traditional_upload
 )
 
-echo æ­£åœ¨æ‰“åŒ…æ–‡ä»¶...
+echo ÕýÔÚ´ò°üÎÄ¼þ...
 tar -czf "%TEMP_ARCHIVE%" -C "%TEMP_DIR%" .
 if errorlevel 1 (
-    echo [è­¦å‘Š] æ‰“åŒ…å¤±è´¥ï¼Œå°†ä½¿ç”¨é€æ–‡ä»¶ä¸Šä¼ æ–¹å¼
+    echo [¾¯¸æ] ´ò°üÊ§°Ü£¬½«Ê¹ÓÃÖðÎÄ¼þÉÏ´«·½Ê½
     del "%TEMP_ARCHIVE%" 2>nul
     goto traditional_upload
 )
-echo [å®Œæˆ] æ‰“åŒ…å®Œæˆ
+echo [Íê³É] ´ò°üÍê³É
 echo.
 
-echo [4/4] æ­£åœ¨ä¸Šä¼ è‡³æœåŠ¡å™¨...
+echo [4/4] ÕýÔÚÉÏ´«ÖÁ·þÎñÆ÷...
 echo ----------------------------------------
-echo æœ¬åœ°åŽ‹ç¼©åŒ…ï¼š%TEMP_ARCHIVE%
+echo ±¾µØÑ¹Ëõ°ü£º%TEMP_ARCHIVE%
 scp %SSH_OPTIONS% "%TEMP_ARCHIVE%" %SERVER_USER%@%SERVER_IP%:/tmp/
 if errorlevel 1 (
-    echo [é”™è¯¯] ä¸Šä¼ åŽ‹ç¼©åŒ…å¤±è´¥
+    echo [´íÎó] ÉÏ´«Ñ¹Ëõ°üÊ§°Ü
     del "%TEMP_ARCHIVE%" 2>nul
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
-echo [å®Œæˆ] ä¸Šä¼ æˆåŠŸ
+echo [Íê³É] ÉÏ´«³É¹¦
 echo.
 
-echo æ­£åœ¨æœåŠ¡å™¨ç«¯è§£åŽ‹å¹¶æ›¿æ¢æ–‡ä»¶...
-ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "echo '[æ­¥éª¤ 1/6] æ ¡éªŒä¸Šä¼ çš„åŽ‹ç¼©åŒ…...' && ls -lh /tmp/%TEMP_ARCHIVE% && echo '[æ­¥éª¤ 2/6] åˆ›å»ºç›®æ ‡ç›®å½•...' && mkdir -p %SERVER_PATH% && echo '[æ­¥éª¤ 3/6] åˆ—å‡ºè§£åŽ‹å‰ç›®å½•å†…å®¹...' && ls -l %SERVER_PATH%/ 2>/dev/null || echo '  ç›®å½•ä¸ºç©ºæˆ–å°šæœªåˆ›å»º' && echo '[æ­¥éª¤ 4/6] æ¸…ç†æ—§æ–‡ä»¶...' && cd %SERVER_PATH% && rm -f vertex-backend.jar schema.sql docker-compose.yml Dockerfile && echo '[æ­¥éª¤ 5/6] è§£åŽ‹æ–°çš„éƒ¨ç½²åŒ…...' && tar -xzvf /tmp/%TEMP_ARCHIVE% && echo '[æ­¥éª¤ 6/6] éªŒè¯è§£åŽ‹ç»“æžœ...' && ls -lh %SERVER_PATH%/ && echo '[æ¸…ç†] åˆ é™¤æœåŠ¡å™¨ä¸´æ—¶åŽ‹ç¼©åŒ…...' && rm -f /tmp/%TEMP_ARCHIVE% && echo '[æˆåŠŸ] æ‰€æœ‰æ“ä½œå·²å®Œæˆ'"
+echo ÕýÔÚ·þÎñÆ÷¶Ë½âÑ¹²¢Ìæ»»ÎÄ¼þ...
+ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "echo '[Step 1] Verifying upload...' && ls -lh /tmp/%TEMP_ARCHIVE% && echo '[Step 2] Creating dirs...' && mkdir -p %SERVER_PATH% && echo '[Step 3] Cleaning old files...' && cd %SERVER_PATH% && rm -f vertex-backend.jar schema.sql docker-compose.yml Dockerfile && echo '[Step 4] Extracting...' && tar -xzvf /tmp/%TEMP_ARCHIVE% && echo '[Step 5] Cleaning temp...' && rm -f /tmp/%TEMP_ARCHIVE% && echo '[Success] Done.'"
 if errorlevel 1 (
-    echo [é”™è¯¯] æœåŠ¡å™¨è§£åŽ‹æˆ–æ›¿æ¢å¤±è´¥
+    echo [´íÎó] ·þÎñÆ÷½âÑ¹»òÌæ»»Ê§°Ü
     del "%TEMP_ARCHIVE%" 2>nul
     rd /s /q "%TEMP_DIR%" 2>nul
     goto upload_error
 )
-echo [å®Œæˆ] æœåŠ¡å™¨å¤„ç†æˆåŠŸ
+echo [Íê³É] ·þÎñÆ÷´¦Àí³É¹¦
 echo.
 
-echo æ­£åœ¨æ¸…ç†æœ¬åœ°ä¸´æ—¶æ–‡ä»¶...
+echo ÕýÔÚÇåÀí±¾µØÁÙÊ±ÎÄ¼þ...
 del "%TEMP_ARCHIVE%" 2>nul
 rd /s /q "%TEMP_DIR%" 2>nul
 goto upload_success
 
 :traditional_upload
 echo.
-echo ä½¿ç”¨é€æ–‡ä»¶ä¸Šä¼ æ¨¡å¼ï¼ˆåœ¨ç¼ºå°‘ tar æˆ–æ‰“åŒ…å¤±è´¥æ—¶å¯ç”¨ï¼‰
+echo Ê¹ÓÃÖðÎÄ¼þÉÏ´«Ä£Ê½£¨ÔÚÈ±ÉÙ tar »ò´ò°üÊ§°ÜÊ±ÆôÓÃ£©
 echo.
 
-echo æ­£åœ¨åˆ›å»ºæœåŠ¡å™¨ç›®å½•...
+echo ÕýÔÚ´´½¨·þÎñÆ÷Ä¿Â¼...
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "mkdir -p %SERVER_PATH%"
 if errorlevel 1 (
     rd /s /q "%TEMP_DIR%" 2>nul
@@ -187,23 +180,23 @@ if "%REMOTE_DIR%"=="" set "REMOTE_DIR=%SERVER_PATH%/"
 set "DISPLAY_NAME=%~nx1"
 
 if not exist "%LOCAL_FILE%" (
-    echo [é”™è¯¯] æœªæ‰¾åˆ°å¾…ä¸Šä¼ æ–‡ä»¶ï¼š%LOCAL_FILE%
+    echo [´íÎó] Î´ÕÒµ½´ýÉÏ´«ÎÄ¼þ£º%LOCAL_FILE%
     exit /b 1
 )
 
-echo æ­£åœ¨ä¸Šä¼  %DISPLAY_NAME%...
+echo ÕýÔÚÉÏ´« %DISPLAY_NAME%...
 scp %SSH_OPTIONS% "%LOCAL_FILE%" %SERVER_USER%@%SERVER_IP%:"%REMOTE_DIR%%DISPLAY_NAME%"
 if errorlevel 1 (
-    echo [é”™è¯¯] ä¸Šä¼ å¤±è´¥ï¼š%DISPLAY_NAME%
+    echo [´íÎó] ÉÏ´«Ê§°Ü£º%DISPLAY_NAME%
     exit /b 1
 )
-echo [å®Œæˆ] %DISPLAY_NAME% ä¸Šä¼ å®Œæˆ
+echo [Íê³É] %DISPLAY_NAME% ÉÏ´«Íê³É
 exit /b 0
 
 :upload_success
 echo.
 echo ========================================
-echo [å®Œæˆ] æ–‡ä»¶ä¸Šä¼ ä¸ŽåŒæ­¥æˆåŠŸ
+echo [Íê³É] ÎÄ¼þÉÏ´«ÓëÍ¬²½³É¹¦
 echo ========================================
 echo.
 pause
@@ -216,23 +209,23 @@ goto main_menu_level1
 cls
 echo.
 echo ========================================
-echo Vertex Backend æœåŠ¡å™¨ç®¡ç†
+echo Vertex Backend ·þÎñÆ÷¹ÜÀí
 echo ========================================
 echo.
-echo æœåŠ¡å™¨ï¼š%SERVER_USER%@%SERVER_IP%
-echo éƒ¨ç½²ç›®å½•ï¼š%SERVER_PATH%
+echo ·þÎñÆ÷£º%SERVER_USER%@%SERVER_IP%
+echo ²¿ÊðÄ¿Â¼£º%SERVER_PATH%
 echo.
 echo ========================================
-echo ä¸»èœå•
+echo Ö÷²Ëµ¥
 echo ========================================
 echo.
-echo 1. éƒ¨ç½²ä¸Žæ›´æ–°          - æž„å»ºã€ä¸Šä¼ å¹¶é‡å»ºæœåŠ¡
-echo 2. ç›‘æŽ§                - æŸ¥çœ‹æ—¥å¿—ä¸ŽçŠ¶æ€
-echo 3. æŽ§åˆ¶                - é‡å¯æˆ–åœæ­¢æœåŠ¡
-echo 4. æ‰‹åŠ¨æŒ‡ä»¤            - æŸ¥çœ‹å¸¸ç”¨å‘½ä»¤
-echo 5. é€€å‡º
+echo 1. ²¿ÊðÓë¸üÐÂ     - ¹¹½¨¡¢ÉÏ´«²¢ÖØ½¨·þÎñ
+echo 2. ¼à¿Ø           - ²é¿´ÈÕÖ¾Óë×´Ì¬
+echo 3. ¿ØÖÆ           - ÖØÆô»òÍ£Ö¹·þÎñ
+echo 4. ÊÖ¶¯Ö¸Áî       - ²é¿´³£ÓÃÃüÁî
+echo 5. ÍË³ö
 echo.
-set /p CHOICE="è¯·è¾“å…¥é€‰é¡¹ (1-5)ï¼š "
+set /p CHOICE="ÇëÊäÈëÑ¡Ïî (1-5)£º "
 
 if "%CHOICE%"=="" goto main_menu_level1
 if "%CHOICE%"=="1" goto menu_deployment
@@ -243,7 +236,7 @@ if "%CHOICE%"=="5" goto end_script
 
 cls
 echo.
-echo [é”™è¯¯] æ— æ•ˆé€‰é¡¹
+echo [´íÎó] ÎÞÐ§Ñ¡Ïî
 echo.
 timeout /t 2 >nul
 goto main_menu_level1
@@ -252,19 +245,19 @@ goto main_menu_level1
 cls
 echo.
 echo ========================================
-echo éƒ¨ç½²ä¸Žæ›´æ–°
+echo ²¿ÊðÓë¸üÐÂ
 echo ========================================
 echo.
-echo æœåŠ¡å™¨ï¼š%SERVER_USER%@%SERVER_IP%
-echo éƒ¨ç½²ç›®å½•ï¼š%SERVER_PATH%
+echo ·þÎñÆ÷£º%SERVER_USER%@%SERVER_IP%
+echo ²¿ÊðÄ¿Â¼£º%SERVER_PATH%
 echo.
-echo 1. æž„å»ºå¹¶ä¸Šä¼  JAR               - æœ¬åœ°æž„å»ºå¹¶ä¸Šä¼ è‡³æœåŠ¡å™¨
-echo 2. ä»…æ›´æ–°åŽç«¯                   - é‡å»ºå¹¶å¯åŠ¨åŽç«¯ï¼ˆæœ€å¸¸ç”¨ï¼‰
-echo 3. é‡å»ºæ‰€æœ‰æœåŠ¡                 - ä¿ç•™æ•°æ®çš„å®Œæ•´é‡å»º
-echo 4. é‡å»ºæ‰€æœ‰æœåŠ¡ï¼ˆåˆ é™¤å…¨éƒ¨æ•°æ®ï¼‰ - å®Œå…¨é‡ç½®å¹¶æ¸…ç©ºæ•°æ®
-echo 0. è¿”å›žä¸»èœå•
+echo 1. ¹¹½¨²¢ÉÏ´« JAR         - ±¾µØ¹¹½¨²¢ÉÏ´«ÖÁ·þÎñÆ÷
+echo 2. ½ö¸üÐÂºó¶Ë             - ÖØ½¨²¢Æô¶¯ºó¶Ë£¨×î³£ÓÃ£©
+echo 3. ÖØ½¨ËùÓÐ·þÎñ           - ±£ÁôÊý¾ÝµÄÍêÕûÖØ½¨
+echo 4. ÖØ½¨ËùÓÐ£¨É¾Êý¾Ý£©     - ÍêÈ«ÖØÖÃ²¢Çå¿ÕÊý¾Ý
+echo 0. ·µ»ØÖ÷²Ëµ¥
 echo.
-set /p CHOICE="è¯·è¾“å…¥é€‰é¡¹ (0-4)ï¼š "
+set /p CHOICE="ÇëÊäÈëÑ¡Ïî (0-4)£º "
 
 if "%CHOICE%"=="" goto menu_deployment
 if "%CHOICE%"=="1" goto build_and_upload
@@ -275,7 +268,7 @@ if "%CHOICE%"=="0" goto main_menu_level1
 
 cls
 echo.
-echo [é”™è¯¯] æ— æ•ˆé€‰é¡¹
+echo [´íÎó] ÎÞÐ§Ñ¡Ïî
 echo.
 timeout /t 2 >nul
 goto menu_deployment
@@ -284,17 +277,17 @@ goto menu_deployment
 cls
 echo.
 echo ========================================
-echo ç›‘æŽ§
+echo ¼à¿Ø
 echo ========================================
 echo.
-echo æœåŠ¡å™¨ï¼š%SERVER_USER%@%SERVER_IP%
-echo éƒ¨ç½²ç›®å½•ï¼š%SERVER_PATH%
+echo ·þÎñÆ÷£º%SERVER_USER%@%SERVER_IP%
+echo ²¿ÊðÄ¿Â¼£º%SERVER_PATH%
 echo.
-echo 1. æŸ¥çœ‹æ—¥å¿—            - å®žæ—¶æŸ¥çœ‹åº”ç”¨æ—¥å¿—
-echo 2. æ£€æŸ¥çŠ¶æ€            - æŸ¥çœ‹æœåŠ¡çŠ¶æ€ä¸Žèµ„æº
-echo 0. è¿”å›žä¸»èœå•
+echo 1. ²é¿´ÈÕÖ¾       - ÊµÊ±²é¿´Ó¦ÓÃÈÕÖ¾
+echo 2. ¼ì²é×´Ì¬       - ²é¿´·þÎñ×´Ì¬Óë×ÊÔ´
+echo 0. ·µ»ØÖ÷²Ëµ¥
 echo.
-set /p CHOICE="è¯·è¾“å…¥é€‰é¡¹ (0-2)ï¼š "
+set /p CHOICE="ÇëÊäÈëÑ¡Ïî (0-2)£º "
 
 if "%CHOICE%"=="" goto menu_monitoring
 if "%CHOICE%"=="1" goto option_logs
@@ -303,7 +296,7 @@ if "%CHOICE%"=="0" goto main_menu_level1
 
 cls
 echo.
-echo [é”™è¯¯] æ— æ•ˆé€‰é¡¹
+echo [´íÎó] ÎÞÐ§Ñ¡Ïî
 echo.
 timeout /t 2 >nul
 goto menu_monitoring
@@ -312,18 +305,18 @@ goto menu_monitoring
 cls
 echo.
 echo ========================================
-echo æŽ§åˆ¶
+echo ¿ØÖÆ
 echo ========================================
 echo.
-echo æœåŠ¡å™¨ï¼š%SERVER_USER%@%SERVER_IP%
-echo éƒ¨ç½²ç›®å½•ï¼š%SERVER_PATH%
+echo ·þÎñÆ÷£º%SERVER_USER%@%SERVER_IP%
+echo ²¿ÊðÄ¿Â¼£º%SERVER_PATH%
 echo.
-echo 1. ä»…é‡å¯åŽç«¯          - å¿«é€Ÿé‡å¯åŽç«¯ï¼ˆä¸é‡å»ºï¼‰
-echo 2. é‡å¯å…¨éƒ¨æœåŠ¡        - ä¸é‡å»ºé•œåƒçš„æ•´ä½“é‡å¯
-echo 3. åœæ­¢å…¨éƒ¨æœåŠ¡        - åœæ­¢æ‰€æœ‰å®¹å™¨
-echo 0. è¿”å›žä¸»èœå•
+echo 1. ½öÖØÆôºó¶Ë     - ¿ìËÙÖØÆôºó¶Ë£¨²»ÖØ½¨£©
+echo 2. ÖØÆôÈ«²¿·þÎñ   - ²»ÖØ½¨¾µÏñµÄÕûÌåÖØÆô
+echo 3. Í£Ö¹È«²¿·þÎñ   - Í£Ö¹ËùÓÐÈÝÆ÷
+echo 0. ·µ»ØÖ÷²Ëµ¥
 echo.
-set /p CHOICE="è¯·è¾“å…¥é€‰é¡¹ (0-3)ï¼š "
+set /p CHOICE="ÇëÊäÈëÑ¡Ïî (0-3)£º "
 
 if "%CHOICE%"=="" goto menu_control
 if "%CHOICE%"=="1" goto option_restart_backend
@@ -333,7 +326,7 @@ if "%CHOICE%"=="0" goto main_menu_level1
 
 cls
 echo.
-echo [é”™è¯¯] æ— æ•ˆé€‰é¡¹
+echo [´íÎó] ÎÞÐ§Ñ¡Ïî
 echo.
 timeout /t 2 >nul
 goto menu_control
@@ -342,190 +335,141 @@ goto menu_control
 cls
 echo.
 echo ========================================
-echo ä»…æ›´æ–°åŽç«¯
+echo ½ö¸üÐÂºó¶Ë
 echo ========================================
 echo.
-echo [èŒƒå›´] ä»…å½±å“åŽç«¯æœåŠ¡
-echo [è¯´æ˜Ž] ä½¿ç”¨æ–°çš„ JAR æž„å»ºé•œåƒ
-echo [è¯´æ˜Ž] ä¼šåº”ç”¨åŽç«¯çŽ¯å¢ƒå˜é‡å˜æ›´
-echo [è¯´æ˜Ž] å®ŒæˆåŽè‡ªåŠ¨å¯åŠ¨åŽç«¯å®¹å™¨
-echo [æç¤º] ä¸ä¼šå½±å“ MySQL / Redis / MinIO
-echo [åœºæ™¯] ä¸Šä¼ æ–° JAR æˆ–ä¿®æ”¹åŽç«¯é…ç½®åŽ
+echo [·¶Î§] ½öÓ°Ïìºó¶Ë·þÎñ
+echo [ËµÃ÷] Ê¹ÓÃÐÂµÄ JAR ¹¹½¨¾µÏñ
+echo [ËµÃ÷] »áÓ¦ÓÃºó¶Ë»·¾³±äÁ¿±ä¸ü
+echo [ËµÃ÷] Íê³Éºó×Ô¶¯Æô¶¯ºó¶ËÈÝÆ÷
+echo [ÌáÊ¾] ²»»áÓ°Ïì MySQL / Redis / MinIO
+echo [³¡¾°] ÉÏ´«ÐÂ JAR »òÐÞ¸Äºó¶ËÅäÖÃºó
 echo.
-echo è¯´æ˜Žï¼šå¦‚å·²é…ç½® SSH å¯†é’¥ï¼Œé€šå¸¸æ— éœ€è¾“å…¥å¯†ç 
-echo.
-echo æ­£åœ¨æ›´æ–° vertex-backend å®¹å™¨...
+echo ÕýÔÚ¸üÐÂ vertex-backend ÈÝÆ÷...
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose up -d --build --force-recreate --no-deps vertex-backend && echo && docker compose ps"
-if errorlevel 1 (
-    echo.
-    echo [é”™è¯¯] é‡å»ºæˆ–å¯åŠ¨å®¹å™¨å¤±è´¥
-    echo.
-    echo æŽ’æŸ¥å»ºè®®ï¼š
-    echo 1. ç¡®è®¤æœåŠ¡å™¨ä¸Šå­˜åœ¨æœ€æ–° JAR
-    echo 2. æ£€æŸ¥ Dockerfile æ˜¯å¦å¯ç”¨
-    echo 3. ç¡®è®¤ Docker æœåŠ¡å·²å¯åŠ¨
-)
 goto after_operation
 
 :option_rebuild_all
 cls
 echo.
 echo ========================================
-echo é‡å»ºæ‰€æœ‰æœåŠ¡
+echo ÖØ½¨ËùÓÐ·þÎñ
 echo ========================================
 echo.
-echo [èŒƒå›´] MySQL + Redis + MinIO + åŽç«¯
-echo [è­¦å‘Š] å°†é‡å»ºå¹¶é‡å¯å…¨éƒ¨æœåŠ¡
-echo [è¯´æ˜Ž] å®ŒæˆåŽè‡ªåŠ¨å¯åŠ¨æ‰€æœ‰æœåŠ¡
-echo [å½±å“] æ•°æ®åº“è¿žæŽ¥ä¼šçŸ­æš‚ä¸­æ–­
-echo [å½±å“] Redis ç¼“å­˜ä¼šè¢«æ¸…ç©º
-echo [å½±å“] MinIO å°†é‡å¯
-echo [åœºæ™¯] docker-compose.yml æˆ–ä¾èµ–æ”¹åŠ¨
+echo [·¶Î§] MySQL + Redis + MinIO + ºó¶Ë
+echo [¾¯¸æ] ½«ÖØ½¨²¢ÖØÆôÈ«²¿·þÎñ
+echo [ËµÃ÷] Íê³Éºó×Ô¶¯Æô¶¯ËùÓÐ·þÎñ
+echo [Ó°Ïì] Êý¾Ý¿âÁ¬½Ó»á¶ÌÔÝÖÐ¶Ï
+echo [Ó°Ïì] Redis »º´æ»á±»Çå¿Õ
+echo [Ó°Ïì] MinIO ½«ÖØÆô
+echo [³¡¾°] docker-compose.yml »òÒÀÀµ¸Ä¶¯
 echo.
-set /p CONFIRM="ç¡®è®¤é‡å»ºæ‰€æœ‰æœåŠ¡ï¼Ÿ(y/n)ï¼š "
+set /p CONFIRM="È·ÈÏÖØ½¨ËùÓÐ·þÎñ£¿(y/n)£º "
 if /i not "%CONFIRM%"=="y" (
     echo.
-    echo æ“ä½œå·²å–æ¶ˆ
+    echo ²Ù×÷ÒÑÈ¡Ïû
     goto after_operation
 )
 echo.
-echo è¯´æ˜Žï¼šå¦‚å·²é…ç½® SSH å¯†é’¥ï¼Œé€šå¸¸æ— éœ€è¾“å…¥å¯†ç 
-echo.
-echo æ­£åœ¨é‡å»ºæ‰€æœ‰æœåŠ¡...
+echo ÕýÔÚÖØ½¨ËùÓÐ·þÎñ...
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker stop vertex-backend vertex-mysql vertex-redis vertex-minio 2>/dev/null || true && docker rm -f vertex-backend vertex-mysql vertex-redis vertex-minio 2>/dev/null || true && docker compose down 2>/dev/null || true && docker compose up -d --build --force-recreate && echo && docker compose ps"
-if errorlevel 1 (
-    echo.
-    echo [é”™è¯¯] é‡å»ºæˆ–å¯åŠ¨å¤±è´¥
-    echo.
-    echo æŽ’æŸ¥å»ºè®®ï¼š
-    echo 1. ç¡®è®¤æœåŠ¡å™¨ä¸Šæ–‡ä»¶é½å…¨
-    echo 2. æ£€æŸ¥ docker-compose.yml æ˜¯å¦æœ‰æ•ˆ
-    echo 3. ç¡®è®¤ Docker æœåŠ¡å·²å¯åŠ¨
-    echo 4. äº¦å¯æ‰‹åŠ¨æ‰§è¡Œï¼š
-    echo    ssh %SERVER_USER%@%SERVER_IP%
-    echo    cd %SERVER_PATH% ^&^& docker compose down ^&^& docker compose up -d --build
-)
 goto after_operation
 
 :option_rebuild_all_delete_volumes
 cls
 echo.
 echo ========================================
-echo é‡å»ºæ‰€æœ‰æœåŠ¡ï¼ˆåˆ é™¤å…¨éƒ¨æ•°æ®ï¼‰
+echo ÖØ½¨ËùÓÐ·þÎñ£¨É¾³ýÈ«²¿Êý¾Ý£©
 echo ========================================
 echo.
-echo [èŒƒå›´] MySQL + Redis + MinIO + åŽç«¯
-echo [å±é™©] å°†åˆ é™¤æ‰€æœ‰å·åŠæ•°æ®
-echo [æé†’] è¿™æ˜¯ä¸å¯é€†çš„å®Œå…¨é‡ç½®
-echo [è¯´æ˜Ž] é‡å»ºå®ŒæˆåŽè‡ªåŠ¨å¯åŠ¨æ‰€æœ‰æœåŠ¡
-echo [å½±å“] MySQL / Redis / MinIO æ•°æ®å°†è¢«æ°¸ä¹…åˆ é™¤
-echo [åœºæ™¯] éœ€è¦å…¨æ–°çŽ¯å¢ƒæˆ–æ¸…ç©ºæ•°æ®
+echo [·¶Î§] MySQL + Redis + MinIO + ºó¶Ë
+echo [Î£ÏÕ] ½«É¾³ýËùÓÐ¾í¼°Êý¾Ý
+echo [ÌáÐÑ] ÕâÊÇ²»¿ÉÄæµÄÍêÈ«ÖØÖÃ
+echo [ËµÃ÷] ÖØ½¨Íê³Éºó×Ô¶¯Æô¶¯ËùÓÐ·þÎñ
+echo [Ó°Ïì] MySQL / Redis / MinIO Êý¾Ý½«±»ÓÀ¾ÃÉ¾³ý
+echo [³¡¾°] ÐèÒªÈ«ÐÂ»·¾³»òÇå¿ÕÊý¾Ý
 echo.
-echo !!! è­¦å‘Š !!!
-echo å°†æ°¸ä¹…åˆ é™¤ï¼š
-echo   - æ‰€æœ‰ MySQL æ•°æ®
-echo   - æ‰€æœ‰ Redis æ•°æ®
-echo   - æ‰€æœ‰ MinIO æ–‡ä»¶
-echo   - æ‰€æœ‰ Docker å·
+echo !!! ¾¯¸æ !!!
+echo ½«ÓÀ¾ÃÉ¾³ý£º
+echo   - ËùÓÐ MySQL Êý¾Ý
+echo   - ËùÓÐ Redis Êý¾Ý
+echo   - ËùÓÐ MinIO ÎÄ¼þ
+echo   - ËùÓÐ Docker ¾í
 echo.
-echo æ­¤æ“ä½œä¸å¯æ’¤é”€ã€‚
+echo ´Ë²Ù×÷²»¿É³·Ïú¡£
 echo.
-set /p CONFIRM="è¯·è¾“å…¥ DELETEï¼ˆå¤§å†™ï¼‰ä»¥ç¡®è®¤ï¼š "
+set /p CONFIRM="ÇëÊäÈë DELETE£¨´óÐ´£©ÒÔÈ·ÈÏ£º "
 if not "%CONFIRM%"=="DELETE" (
     echo.
-    echo [å·²å–æ¶ˆ] è¾“å…¥ä¸åŒ¹é…ï¼Œæ“ä½œç»ˆæ­¢
+    echo [ÒÑÈ¡Ïû] ÊäÈë²»Æ¥Åä£¬²Ù×÷ÖÕÖ¹
     goto after_operation
 )
 echo.
-set /p CONFIRM2="è¯·å†æ¬¡ç¡®è®¤ (y/n)ï¼š "
+set /p CONFIRM2="ÇëÔÙ´ÎÈ·ÈÏ (y/n)£º "
 if /i not "%CONFIRM2%"=="y" (
     echo.
-    echo æ“ä½œå·²å–æ¶ˆ
+    echo ²Ù×÷ÒÑÈ¡Ïû
     goto after_operation
 )
 echo.
-echo è¯´æ˜Žï¼šå¦‚å·²é…ç½® SSH å¯†é’¥ï¼Œé€šå¸¸æ— éœ€è¾“å…¥å¯†ç 
-echo.
-echo æ­£åœ¨åˆ é™¤æ‰€æœ‰å·å¹¶é‡å»º...
+echo ÕýÔÚÉ¾³ýËùÓÐ¾í²¢ÖØ½¨...
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose down -v && echo && echo 'All volumes deleted.' && echo 'Rebuilding all services...' && echo && docker compose up -d --build --force-recreate && echo && docker compose ps"
-if errorlevel 1 (
-    echo.
-    echo [é”™è¯¯] é‡å»ºå¤±è´¥
-    echo.
-    echo æŽ’æŸ¥å»ºè®®ï¼š
-    echo 1. ç¡®è®¤æœåŠ¡å™¨ä¸Šæ–‡ä»¶é½å…¨
-    echo 2. æ£€æŸ¥ docker-compose.yml æ˜¯å¦æœ‰æ•ˆ
-    echo 3. ç¡®è®¤ Docker æœåŠ¡å·²å¯åŠ¨
-    echo 4. äº¦å¯æ‰‹åŠ¨æ‰§è¡Œï¼š
-    echo    ssh %SERVER_USER%@%SERVER_IP%
-    echo    cd %SERVER_PATH% ^&^& docker compose down -v ^&^& docker compose up -d --build
-)
 goto after_operation
 
 :option_restart_backend
 cls
 echo.
 echo ========================================
-echo ä»…é‡å¯åŽç«¯
+echo ½öÖØÆôºó¶Ë
 echo ========================================
 echo.
-echo [èŒƒå›´] ä»…å½±å“åŽç«¯æœåŠ¡
-echo [è¯´æ˜Ž] ä»…é‡å¯å®¹å™¨ï¼Œä¸ä¼šä½¿ç”¨æ–° JAR
-echo [è¯´æ˜Ž] ä¸ä¼šåº”ç”¨é…ç½®å˜æ›´
-echo [æç¤º] ä¸å½±å“ MySQL / Redis / MinIO
-echo [åœºæ™¯] åŽç«¯å¡æ­»ä½†æ— éœ€é‡å»º
+echo [·¶Î§] ½öÓ°Ïìºó¶Ë·þÎñ
+echo [ËµÃ÷] ½öÖØÆôÈÝÆ÷£¬²»»áÊ¹ÓÃÐÂ JAR
+echo [ËµÃ÷] ²»»áÓ¦ÓÃÅäÖÃ±ä¸ü
+echo [ÌáÊ¾] ²»Ó°Ïì MySQL / Redis / MinIO
+echo [³¡¾°] ºó¶Ë¿¨ËÀµ«ÎÞÐèÖØ½¨
 echo.
-echo æ­£åœ¨é‡å¯åŽç«¯...
+echo ÕýÔÚÖØÆôºó¶Ë...
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose restart vertex-backend && echo && docker compose ps vertex-backend"
-if errorlevel 1 (
-    echo.
-    echo [é”™è¯¯] é‡å¯å¤±è´¥
-    echo è¯·æ£€æŸ¥å®¹å™¨æ˜¯å¦å­˜åœ¨å¹¶å¯è®¿é—®
-)
 goto after_operation
 
 :option_restart_all
 cls
 echo.
 echo ========================================
-echo é‡å¯å…¨éƒ¨æœåŠ¡
+echo ÖØÆôÈ«²¿·þÎñ
 echo ========================================
 echo.
-echo [èŒƒå›´] MySQL + Redis + MinIO + åŽç«¯
-echo [è¯´æ˜Ž] ä»…é‡å¯ï¼Œä¸ä¼šé‡å»ºé•œåƒ
-echo [è¯´æ˜Ž] ä¸ä¼šåº”ç”¨é…ç½®æˆ– JAR å˜æ›´
-echo [å½±å“] æ‰€æœ‰æœåŠ¡çŸ­æš‚ä¸­æ–­
-echo [åœºæ™¯] æ‰€æœ‰æœåŠ¡å¡æ­»æˆ–éœ€è¦å¿«é€Ÿé‡å¯
+echo [·¶Î§] MySQL + Redis + MinIO + ºó¶Ë
+echo [ËµÃ÷] ½öÖØÆô£¬²»»áÖØ½¨¾µÏñ
+echo [ËµÃ÷] ²»»áÓ¦ÓÃÅäÖÃ»ò JAR ±ä¸ü
+echo [Ó°Ïì] ËùÓÐ·þÎñ¶ÌÔÝÖÐ¶Ï
+echo [³¡¾°] ËùÓÐ·þÎñ¿¨ËÀ»òÐèÒª¿ìËÙÖØÆô
 echo.
-set /p CONFIRM="ç¡®è®¤é‡å¯å…¨éƒ¨æœåŠ¡ï¼Ÿ(y/n)ï¼š "
+set /p CONFIRM="È·ÈÏÖØÆôÈ«²¿·þÎñ£¿(y/n)£º "
 if /i not "%CONFIRM%"=="y" (
     echo.
-    echo æ“ä½œå·²å–æ¶ˆ
+    echo ²Ù×÷ÒÑÈ¡Ïû
     goto after_operation
 )
 echo.
-echo æ­£åœ¨é‡å¯æ‰€æœ‰æœåŠ¡...
+echo ÕýÔÚÖØÆôËùÓÐ·þÎñ...
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose restart && echo && docker compose ps"
-if errorlevel 1 (
-    echo.
-    echo [é”™è¯¯] é‡å¯å¤±è´¥
-    echo è¯·å‚è€ƒä¸Šæ–¹é”™è¯¯ä¿¡æ¯
-)
 goto after_operation
 
 :option_logs
 cls
 echo.
 echo ========================================
-echo æŸ¥çœ‹æ—¥å¿—
+echo ²é¿´ÈÕÖ¾
 echo ========================================
 echo.
-echo [ä¿¡æ¯] æ­£åœ¨è¾“å‡ºå®žæ—¶æ—¥å¿—ï¼ŒæŒ‰ Ctrl+C é€€å‡º
+echo [ÐÅÏ¢] ÕýÔÚÊä³öÊµÊ±ÈÕÖ¾£¬°´ Ctrl+C ÍË³ö
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose logs -f vertex-backend"
 goto after_operation
@@ -534,10 +478,10 @@ goto after_operation
 cls
 echo.
 echo ========================================
-echo æ£€æŸ¥çŠ¶æ€
+echo ¼ì²é×´Ì¬
 echo ========================================
 echo.
-echo [ä¿¡æ¯] æŸ¥çœ‹æœåŠ¡çŠ¶æ€ä¸Žèµ„æºå ç”¨
+echo [ÐÅÏ¢] ²é¿´·þÎñ×´Ì¬Óë×ÊÔ´Õ¼ÓÃ
 echo.
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose ps && echo && echo 'Resource usage:' && docker stats --no-stream vertex-backend 2>/dev/null || echo '  Container not running'"
 goto after_operation
@@ -546,77 +490,52 @@ goto after_operation
 cls
 echo.
 echo ========================================
-echo åœæ­¢å…¨éƒ¨æœåŠ¡
+echo Í£Ö¹È«²¿·þÎñ
 echo ========================================
 echo.
-echo [è­¦å‘Š] å°†åœæ­¢åŽç«¯ã€MySQLã€Redisã€MinIO
-echo [è¯´æ˜Ž] æ•°æ®å·ä¼šè¢«ä¿ç•™
+echo [¾¯¸æ] ½«Í£Ö¹ºó¶Ë¡¢MySQL¡¢Redis¡¢MinIO
+echo [ËµÃ÷] Êý¾Ý¾í»á±»±£Áô
 echo.
-set /p CONFIRM="ç¡®è®¤åœæ­¢ï¼Ÿ(y/n)ï¼š "
+set /p CONFIRM="È·ÈÏÍ£Ö¹£¿(y/n)£º "
 if /i not "%CONFIRM%"=="y" (
     echo.
-    echo æ“ä½œå·²å–æ¶ˆ
+    echo ²Ù×÷ÒÑÈ¡Ïû
     goto after_operation
 )
 echo.
-echo æ­£åœ¨åœæ­¢æ‰€æœ‰æœåŠ¡...
+echo ÕýÔÚÍ£Ö¹ËùÓÐ·þÎñ...
 ssh %SSH_OPTIONS% %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && docker compose down"
-if errorlevel 1 (
-    echo.
-    echo [é”™è¯¯] åœæ­¢å¤±è´¥
-    echo è¯·å‚è€ƒä¸Šæ–¹é”™è¯¯ä¿¡æ¯
-)
 goto after_operation
 
 :option_manual
 cls
 echo.
 echo ========================================
-echo æ‰‹åŠ¨æŒ‡ä»¤æŒ‡å—
+echo ÊÖ¶¯Ö¸ÁîÖ¸ÄÏ
 echo ========================================
 echo.
-echo è¿žæŽ¥æœåŠ¡å™¨ï¼š
+echo Á¬½Ó·þÎñÆ÷£º
 echo   ssh %SERVER_USER%@%SERVER_IP%
 echo.
-echo åˆ‡æ¢åˆ°éƒ¨ç½²ç›®å½•ï¼š
+echo ÇÐ»»µ½²¿ÊðÄ¿Â¼£º
 echo   cd %SERVER_PATH%
 echo.
-echo å¸¸ç”¨å‘½ä»¤ï¼š
-echo   ä»…æ›´æ–°åŽç«¯ï¼š      docker compose up -d --build --force-recreate --no-deps vertex-backend
-echo   é‡å»ºæ‰€æœ‰æœåŠ¡ï¼š    docker compose down ^&^& docker compose up -d --build --force-recreate
-echo   å®Œå…¨é‡ç½®ï¼ˆåˆ æ•°æ®ï¼‰ï¼šdocker compose down -v ^&^& docker compose up -d --build --force-recreate
-echo   ä»…é‡å¯åŽç«¯ï¼š      docker compose restart vertex-backend
-echo   é‡å¯å…¨éƒ¨æœåŠ¡ï¼š    docker compose restart
-echo   æŸ¥çœ‹æ—¥å¿—ï¼š        docker compose logs -f vertex-backend
-echo   æ£€æŸ¥çŠ¶æ€ï¼š        docker compose ps
-echo   åœæ­¢å…¨éƒ¨æœåŠ¡ï¼š    docker compose down
-echo.
-echo å¸¸ç”¨æµç¨‹ï¼š
-echo   1. ä¸Šä¼ æ–° JARï¼š   ä¸»èœå• ^> 1 ^> 1
-echo   2. æ›´æ–°åŽç«¯ï¼š     ä¸»èœå• ^> 1 ^> 2
-echo   3. æŸ¥çœ‹æ—¥å¿—ï¼š     ä¸»èœå• ^> 2 ^> 1
-echo.
-echo é‡å»ºå…¨é‡æµç¨‹ï¼š
-echo   1. ä¸Šä¼ æ–° JARï¼š   ä¸»èœå• ^> 1 ^> 1
-echo   2. é‡å»ºå…¨éƒ¨ï¼š     ä¸»èœå• ^> 1 ^> 3ï¼ˆä¿ç•™æ•°æ®ï¼‰
-echo   3. æ£€æŸ¥çŠ¶æ€ï¼š     ä¸»èœå• ^> 2 ^> 2
-echo.
-echo å®Œå…¨é‡ç½®æµç¨‹ï¼š
-echo   1. ä¸Šä¼ æ–° JARï¼š   ä¸»èœå• ^> 1 ^> 1
-echo   2. å…¨é‡é‡ç½®ï¼š     ä¸»èœå• ^> 1 ^> 4ï¼ˆæ¸…ç©ºæ•°æ®ï¼‰
-echo   3. æ£€æŸ¥çŠ¶æ€ï¼š     ä¸»èœå• ^> 2 ^> 2
-echo.
-echo æ•…éšœæŽ’æŸ¥ï¼š
-echo   åŽç«¯å¡æ­»ï¼š       ä¸»èœå• ^> 3 ^> 1ï¼ˆä»…é‡å¯åŽç«¯ï¼‰
-echo   æ‰€æœ‰æœåŠ¡å¡æ­»ï¼š   ä¸»èœå• ^> 3 ^> 2ï¼ˆé‡å¯å…¨éƒ¨ï¼‰
-echo   é…ç½®å˜æ›´ï¼š       ä¸»èœå• ^> 1 ^> 2ï¼ˆåŽç«¯ï¼‰æˆ– ^> 1 ^> 3ï¼ˆå…¨éƒ¨ï¼‰
+echo ³£ÓÃÃüÁî£º
+echo   ½ö¸üÐÂºó¶Ë£º      docker compose up -d --build --force-recreate --no-deps vertex-backend
+echo   ÖØ½¨ËùÓÐ·þÎñ£º    docker compose down ^&^& docker compose up -d --build --force-recreate
+echo   ÍêÈ«ÖØÖÃ£¨É¾Êý¾Ý£©£ºdocker compose down -v ^&^& docker compose up -d --build --force-recreate
+echo   ½öÖØÆôºó¶Ë£º      docker compose restart vertex-backend
+echo   ÖØÆôÈ«²¿·þÎñ£º    docker compose restart
+echo   ²é¿´ÈÕÖ¾£º        docker compose logs -f vertex-backend
+echo   ¼ì²é×´Ì¬£º        docker compose ps
+echo   Í£Ö¹È«²¿·þÎñ£º    docker compose down
 echo.
 goto after_operation
 
 :after_operation
 echo.
 echo ----------------------------------------
-set /p CONTINUE="æ˜¯å¦ç»§ç»­æ‰§è¡Œå…¶ä»–æ“ä½œï¼Ÿ(y/n)ï¼š "
+set /p CONTINUE="ÊÇ·ñ¼ÌÐøÖ´ÐÐÆäËû²Ù×÷£¿(y/n)£º "
 if /i "%CONTINUE%"=="y" (
     goto main_menu_level1
 )
@@ -626,15 +545,14 @@ goto end_script
 cls
 echo.
 echo ========================================
-echo æ„Ÿè°¢ä½¿ç”¨ Vertex Backend éƒ¨ç½²å·¥å…·ï¼
+echo ¸ÐÐ»Ê¹ÓÃ Vertex Backend ²¿Êð¹¤¾ß£¡
 echo ========================================
 echo.
-if defined RESTORE_CP chcp %RESTORE_CP% >nul
 pause
 exit /b 0
 
 :copy_error
-echo [é”™è¯¯] å¤åˆ¶æ–‡ä»¶å¤±è´¥
+echo [´íÎó] ¸´ÖÆÎÄ¼þÊ§°Ü
 rd /s /q "%TEMP_DIR%" 2>nul
 echo.
 pause
@@ -644,17 +562,11 @@ goto main_menu_level1
 cls
 echo.
 echo ========================================
-echo [é”™è¯¯] ä¸Šä¼ å¤±è´¥
+echo [´íÎó] ÉÏ´«Ê§°Ü
 echo ========================================
-echo.
-echo æŽ’æŸ¥å»ºè®®ï¼š
-echo 1. æ£€æŸ¥æœ¬åœ°ç½‘ç»œè¿žæŽ¥
-echo 2. æ ¸å¯¹æœåŠ¡å™¨ IPï¼š%SERVER_IP%
-echo 3. ç¡®è®¤ SSH å¯†é’¥æˆ–å¯†ç é…ç½®æ­£ç¡®
-echo 4. ç¡®è®¤å·²å®‰è£…å¹¶å¯ç”¨ OpenSSH å®¢æˆ·ç«¯ï¼ˆæˆ–å®‰è£… Git for Windowsï¼‰
 echo.
 del "%TEMP_ARCHIVE%" 2>nul
 rd /s /q "%TEMP_DIR%" 2>nul
-echo æŒ‰ä»»æ„é”®è¿”å›ž...
+echo °´ÈÎÒâ¼ü·µ»Ø...
 pause >nul
 goto main_menu_level1
