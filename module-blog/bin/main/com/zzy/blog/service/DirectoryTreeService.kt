@@ -7,6 +7,7 @@ import com.zzy.blog.constants.CacheConstants
 import com.zzy.blog.constants.RedisKeyConstants
 import com.zzy.blog.dto.DirectoryTreeNode
 import com.zzy.blog.dto.DirectoryTreeResponse
+import com.zzy.blog.dto.NodeType
 import com.zzy.blog.entity.Document
 import com.zzy.blog.entity.Group
 import com.zzy.common.context.AuthContextHolder
@@ -129,9 +130,9 @@ class DirectoryTreeService(
 
         // 2. 将文档添加到对应的分组节点
         documentNodes.forEach { docNode ->
-            if (docNode.groupId != null) {
+            if (docNode.parentId != null) {
                 // 有分组的文档，添加到分组下
-                val parentGroup = groupNodes[docNode.groupId]
+                val parentGroup = groupNodes[docNode.parentId]
                 if (parentGroup != null) {
                     if (parentGroup.children == null) {
                         parentGroup.children = mutableListOf()
@@ -144,18 +145,28 @@ class DirectoryTreeService(
             }
         }
 
-        // 3. 对所有节点的子节点按 sortIndex 排序
-        sortChildren(rootNodes)
-        groupNodes.values.forEach { sortChildren(it.children) }
+        // 3. 对所有节点的子节点按“文件夹优先 + orderIndex”排序
+        val comparator = buildComparator()
+        sortChildren(rootNodes, comparator)
+        groupNodes.values.forEach { sortChildren(it.children, comparator) }
 
-        return rootNodes.sortedBy { it.sortIndex }
+        return rootNodes.sortedWith(comparator)
     }
 
-    /**
-     * 对子节点进行排序
-     */
-    private fun sortChildren(children: MutableList<DirectoryTreeNode>?) {
-        children?.sortWith(compareBy({ it.nodeType.value }, { it.sortIndex }))
+    /** 对子节点进行排序（文件夹优先，之后按 orderIndex） */
+    private fun sortChildren(children: MutableList<DirectoryTreeNode>?, comparator: Comparator<DirectoryTreeNode>) {
+        children?.sortWith(comparator)
+    }
+
+    private fun buildComparator(): Comparator<DirectoryTreeNode> {
+        return compareBy<DirectoryTreeNode>({ typeWeight(it.nodeType) }, { it.orderIndex })
+    }
+
+    private fun typeWeight(nodeType: NodeType): Int {
+        return when (nodeType) {
+            NodeType.GROUP -> 0
+            NodeType.DOCUMENT -> 1
+        }
     }
 
     /**
@@ -210,5 +221,3 @@ class DirectoryTreeService(
         }
     }
 }
-
-

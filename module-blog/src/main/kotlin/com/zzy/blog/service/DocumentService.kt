@@ -1,7 +1,6 @@
 package com.zzy.blog.service
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page
 import com.zzy.blog.constants.DocumentConstants
 import com.zzy.blog.dto.*
 import com.zzy.blog.entity.Document
@@ -211,7 +210,7 @@ class DocumentService(
             type = extension,
             fileId = fileMetadata.id,
             filePath = fileResponse.downloadUrl,
-            sortIndex = 0
+            sortIndex = nextDocumentOrderIndex(userId, request.groupId)
         )
         
         documentMapper.insert(document)
@@ -262,6 +261,22 @@ class DocumentService(
         directoryTreeService.clearCache(userId)
         
         return DocumentDetail.fromEntity(document)
+    }
+
+    private fun nextDocumentOrderIndex(userId: Long, groupId: Long?): Int {
+        val query = QueryWrapper<Document>()
+            .eq("user_id", userId)
+            .eq("deleted", false)
+            .orderByDesc("sort_index")
+            .last("LIMIT 1")
+        if (groupId == null) {
+            query.isNull("group_id")
+        } else {
+            query.eq("group_id", groupId)
+        }
+
+        val last = documentMapper.selectList(query).firstOrNull()
+        return (last?.sortIndex ?: 0) + ORDER_STEP
     }
     
     /**
@@ -467,5 +482,8 @@ class DocumentService(
         )
         logger.debug("已提交文档标题索引任务: documentId={}", document.id)
     }
-}
 
+    companion object {
+        private const val ORDER_STEP = 100
+    }
+}

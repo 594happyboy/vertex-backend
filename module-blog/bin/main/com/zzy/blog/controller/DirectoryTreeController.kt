@@ -1,7 +1,9 @@
 package com.zzy.blog.controller
 
 import com.zzy.blog.dto.DirectoryTreeResponse
+import com.zzy.blog.dto.TreeReorderRequest
 import com.zzy.blog.service.DirectoryTreeService
+import com.zzy.blog.service.TreeCommandService
 import com.zzy.common.dto.ApiResponse
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.tags.Tag
@@ -15,9 +17,10 @@ import org.springframework.web.bind.annotation.*
  */
 @Tag(name = "目录树管理", description = "获取完整的目录树结构（分组+文档），包含Redis缓存")
 @RestController
-@RequestMapping("/api/directory-tree")
+@RequestMapping("/api/tree")
 class DirectoryTreeController(
-    private val directoryTreeService: DirectoryTreeService
+    private val directoryTreeService: DirectoryTreeService,
+    private val treeCommandService: TreeCommandService
 ) {
     
     /**
@@ -47,6 +50,16 @@ class DirectoryTreeController(
     fun getDirectoryTree(): ApiResponse<DirectoryTreeResponse> {
         val response = directoryTreeService.getDirectoryTree()
         return ApiResponse.success(response)
+    }
+
+    /**
+     * 重排目录树（拖拽移动 + 排序）
+     */
+    @Operation(summary = "重排目录树", description = "同一父节点下的节点重新排序，可同时移动文件夹和文档")
+    @PostMapping("/reorder")
+    fun reorder(@RequestBody request: TreeReorderRequest): ApiResponse<Nothing> {
+        treeCommandService.reorder(request)
+        return ApiResponse.success(message = "重排成功")
     }
 }
 

@@ -21,8 +21,7 @@ class WebConfig(
                 "/api/auth/**",           // 认证接口
                 "/api/documents/**",      // 文档接口
                 "/api/user/**",           // 用户接口
-                "/api/directory-tree/**", // 目录树接口
-                "/api/sort/**",           // 排序接口
+                "/api/tree/**",           // 目录树接口（含重排）
                 "/api/groups/**"          // 分组接口
             )
             .excludePathPatterns(
@@ -35,4 +34,3 @@ class WebConfig(
             )
     }
 }
-

@@ -1,5 +1,7 @@
 package com.zzy.blog.dto
 
+import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonValue
 import com.zzy.blog.entity.Document
 import com.zzy.blog.entity.Group
 import java.time.LocalDateTime
@@ -10,60 +12,60 @@ import java.time.LocalDateTime
  * @date 2025-10-18
  */
 
-/**
- * 目录树节点类型
- */
-enum class NodeType(val value: String) {
+/** 目录树节点类型 */
+enum class NodeType(@get:JsonValue val value: String) {
     GROUP("group"),
-    DOCUMENT("document")
+    DOCUMENT("document");
+
+    companion object {
+        @JvmStatic
+        @JsonCreator
+        fun fromValue(value: String?): NodeType {
+            if (value == null) throw IllegalArgumentException("nodeType is required")
+            return values().firstOrNull { it.value.equals(value, ignoreCase = true) || it.name.equals(value, ignoreCase = true) }
+                ?: throw IllegalArgumentException("unsupported nodeType: $value")
+        }
+    }
 }
 
 /**
- * 目录树节点（整合分组和文档）
+ * 目录树节点（分组 + 文档统一视图）
+ * orderIndex 表示同一父节点下的排序序号，实际排序规则为：
+ *  - 先按 nodeType（GROUP 优先）
+ *  - 再按 orderIndex
  */
 data class DirectoryTreeNode(
     val id: Long,
-    val nodeType: NodeType,           // 节点类型：group 或 document
-    val name: String,                  // 分组名或文档标题
-    val parentId: Long? = null,        // 父节点ID（仅分组有）
-    val groupId: Long? = null,         // 所属分组ID（仅文档有）
-    val sortIndex: Int,
+    val nodeType: NodeType,
+    val name: String,
+    val parentId: Long? = null,        // 分组的父分组；文档则为所属分组
+    val orderIndex: Int,
     val createdAt: LocalDateTime?,
     val updatedAt: LocalDateTime?,
-    
-    // 文档专属字段
     val type: String? = null,          // 文档类型: md/pdf
-    
-    // 子节点（可以包含分组和文档）
     var children: MutableList<DirectoryTreeNode>? = null
 ) {
     companion object {
-        /**
-         * 从分组实体创建节点
-         */
         fun fromGroup(group: Group): DirectoryTreeNode {
             return DirectoryTreeNode(
                 id = group.id!!,
                 nodeType = NodeType.GROUP,
                 name = group.name,
                 parentId = group.parentId,
-                sortIndex = group.sortIndex,
+                orderIndex = group.sortIndex,
                 createdAt = group.createdAt,
                 updatedAt = group.updatedAt,
                 children = mutableListOf()
             )
         }
-        
-        /**
-         * 从文档实体创建节点
-         */
+
         fun fromDocument(document: Document): DirectoryTreeNode {
             return DirectoryTreeNode(
                 id = document.id!!,
                 nodeType = NodeType.DOCUMENT,
                 name = document.title,
-                groupId = document.groupId,
-                sortIndex = document.sortIndex,
+                parentId = document.groupId,
+                orderIndex = document.sortIndex,
                 createdAt = document.createdAt,
                 updatedAt = document.updatedAt,
                 type = document.type
@@ -72,12 +74,21 @@ data class DirectoryTreeNode(
     }
 }
 
-/**
- * 目录树响应
- */
+/** 目录树响应 */
 data class DirectoryTreeResponse(
     val tree: List<DirectoryTreeNode>,
-    val cached: Boolean = false        // 标识数据是否来自缓存
+    val cached: Boolean = false
 )
 
+/** 目录树重排请求条目 */
+data class TreeReorderItem(
+    val nodeId: Long,
+    val nodeType: NodeType,
+    val orderIndex: Int
+)
 
+/** 目录树重排请求体 */
+data class TreeReorderRequest(
+    val parentId: Long?,
+    val items: List<TreeReorderItem>
+)

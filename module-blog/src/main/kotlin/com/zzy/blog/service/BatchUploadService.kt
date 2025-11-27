@@ -412,7 +412,7 @@ class BatchUploadService(
                 type = extension,
                 fileId = fileMetadata.id,
                 filePath = fileResponse.downloadUrl,
-                sortIndex = 0
+                sortIndex = nextDocumentOrderIndex(userId, groupId)
             )
             
             documentMapper.insert(document)
@@ -456,6 +456,36 @@ class BatchUploadService(
      */
     private fun convertToMultipartFile(file: File): MultipartFile {
         return FileBackedMultipartFile(file)
+    }
+
+    private fun nextGroupOrderIndex(userId: Long, parentGroupId: Long?): Int {
+        val query = QueryWrapper<Group>()
+            .eq("user_id", userId)
+            .eq("deleted", false)
+            .orderByDesc("sort_index")
+            .last("LIMIT 1")
+        if (parentGroupId == null) {
+            query.isNull("parent_id")
+        } else {
+            query.eq("parent_id", parentGroupId)
+        }
+        val last = groupMapper.selectList(query).firstOrNull()
+        return (last?.sortIndex ?: 0) + ORDER_STEP
+    }
+
+    private fun nextDocumentOrderIndex(userId: Long, groupId: Long?): Int {
+        val query = QueryWrapper<Document>()
+            .eq("user_id", userId)
+            .eq("deleted", false)
+            .orderByDesc("sort_index")
+            .last("LIMIT 1")
+        if (groupId == null) {
+            query.isNull("group_id")
+        } else {
+            query.eq("group_id", groupId)
+        }
+        val last = documentMapper.selectList(query).firstOrNull()
+        return (last?.sortIndex ?: 0) + ORDER_STEP
     }
 
     private class ProgressContext(
@@ -550,7 +580,7 @@ class BatchUploadService(
             userId = userId,
             name = name,
             parentId = parentGroupId,
-            sortIndex = 0
+            sortIndex = nextGroupOrderIndex(userId, parentGroupId)
         )
         
         groupMapper.insert(group)
@@ -564,5 +594,9 @@ class BatchUploadService(
      */
     private fun getCurrentUserId(): Long {
         return AuthContextHolder.getCurrentUserId()
+    }
+
+    companion object {
+        private const val ORDER_STEP = 100
     }
 }

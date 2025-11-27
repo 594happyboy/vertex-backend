@@ -75,7 +75,7 @@ class GroupService(
             userId = userId,
             name = request.name,
             parentId = request.parentId,
-            sortIndex = 0
+            sortIndex = nextGroupOrderIndex(userId, request.parentId)
         )
         
         groupMapper.insert(group)
@@ -251,5 +251,24 @@ class GroupService(
     private fun getCurrentUserId(): Long {
         return AuthContextHolder.getCurrentUserId()
     }
-}
 
+    private fun nextGroupOrderIndex(userId: Long, parentId: Long?): Int {
+        val query = QueryWrapper<Group>()
+            .eq("user_id", userId)
+            .eq("deleted", false)
+            .orderByDesc("sort_index")
+            .last("LIMIT 1")
+        if (parentId == null) {
+            query.isNull("parent_id")
+        } else {
+            query.eq("parent_id", parentId)
+        }
+
+        val last = groupMapper.selectList(query).firstOrNull()
+        return (last?.sortIndex ?: 0) + ORDER_STEP
+    }
+
+    companion object {
+        private const val ORDER_STEP = 100
+    }
+}
