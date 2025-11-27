@@ -149,7 +149,7 @@ class DocumentController(
             @RequestPart("file")
             file: MultipartFile,
             @Parameter(description = "父分组ID，可选；null 表示根目录", required = false)
-            @RequestPart("parentGroupId", required = false)
+            @RequestParam("parentGroupId", required = false)
             parentGroupId: Long?
     ): ApiResponse<BatchUploadResponse> {
         val result = batchUploadService.batchUpload(file, parentGroupId)
@@ -164,7 +164,7 @@ class DocumentController(
             @RequestPart("file")
             file: MultipartFile,
             @Parameter(description = "父分组ID，可选；null 表示根目录", required = false)
-            @RequestPart("parentGroupId", required = false)
+            @RequestParam("parentGroupId", required = false)
             parentGroupId: Long?
     ): ApiResponse<BatchUploadJobCreatedResponse> {
         val response = batchUploadJobService.startAsyncUpload(file, parentGroupId)
