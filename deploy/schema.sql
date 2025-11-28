@@ -149,6 +149,28 @@ CREATE TABLE IF NOT EXISTS documents (
     FULLTEXT INDEX idx_title (title)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文档表';
 
+-- RefreshToken 持久化表
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    token VARCHAR(64) PRIMARY KEY COMMENT 'RefreshToken（UUID去除-）',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    ip_address VARCHAR(64) NOT NULL DEFAULT 'unknown' COMMENT '首次签发IP',
+    user_agent VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'User-Agent',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    expires_at DATETIME NOT NULL COMMENT '过期时间',
+    rotated BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否已轮换',
+    rotated_at DATETIME NULL COMMENT '轮换时间',
+    replaced_by VARCHAR(64) NULL COMMENT '替换后的新token',
+    grace_expires_at DATETIME NULL COMMENT '轮换宽限到期时间',
+    revoked BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否被撤销',
+    revoked_at DATETIME NULL COMMENT '撤销时间',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_id (user_id),
+    INDEX idx_expires_at (expires_at),
+    INDEX idx_revoked (revoked),
+    INDEX idx_user_revoked (user_id, revoked)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='RefreshToken 持久化表';
+
 -- ============================================
 -- 初始数据
 -- ============================================

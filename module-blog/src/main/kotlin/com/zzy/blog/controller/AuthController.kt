@@ -62,7 +62,7 @@ class AuthController(
             "登录成功"
         )
     }
-    
+
     /**
      * 用户登出
      * 
@@ -94,5 +94,6 @@ class AuthController(
         
         return ApiResponse.success(null, "登出成功")
     }
+
 }
 

@@ -1,196 +1,170 @@
 package com.zzy.blog.service
 
-import com.fasterxml.jackson.core.JsonProcessingException
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.zzy.blog.constants.RedisKeyConstants
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper
+import com.zzy.blog.entity.RefreshTokenEntity
+import com.zzy.blog.mapper.RefreshTokenMapper
 import com.zzy.common.config.TokenConfig
 import com.zzy.common.constants.AuthConstants
 import org.slf4j.LoggerFactory
-import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Service
 import java.time.Duration
-import java.util.*
-import kotlin.math.max
+import java.time.LocalDateTime
+import java.util.UUID
 
 /**
- * RefreshToken 管理服务
- * 
- * ## 功能
- * - 生成、验证、撤销 RefreshToken（支持轮换 + 宽限期）
- * - Redis 存储 + JSON 序列化
- * - 记录设备信息，检测异常访问
- * 
- * @author ZZY
- * @date 2025-10-29
+ * RefreshToken 管理服务（MySQL 持久化）
+ *
+ * 通过数据库保存 RefreshToken 的完整生命周期，解决 Redis 重启后令牌丢失的问题。
  */
 @Service
 class RefreshTokenService(
-    private val stringRedisTemplate: StringRedisTemplate,
-    private val objectMapper: ObjectMapper,
+    private val refreshTokenMapper: RefreshTokenMapper,
     private val tokenConfig: TokenConfig
 ) {
-    
+
     private val logger = LoggerFactory.getLogger(RefreshTokenService::class.java)
 
     /**
-     * RefreshToken元信息
-     */
-    private data class RefreshTokenInfo(
-        val userId: Long,
-        val ipAddress: String,
-        val userAgent: String,
-        val createTime: Long,
-        val rotated: Boolean = false,
-        val rotatedAt: Long? = null,
-        val replacedBy: String? = null,
-        val graceExpiresAt: Long? = null
-    )
-    
-    /**
-     * 生成 RefreshToken 并存储到Redis
-     * 
+     * 生成 RefreshToken
+     *
      * @param userId 用户ID
      * @param ipAddress 客户端IP地址
-     * @param userAgent 用户代理（浏览器信息）
-     * @return 生成的RefreshToken字符串
+     * @param userAgent 用户代理
      */
     fun generateRefreshToken(userId: Long, ipAddress: String?, userAgent: String?): String {
         val refreshToken = UUID.randomUUID().toString().replace("-", "")
-        val info = RefreshTokenInfo(
+        val now = LocalDateTime.now()
+        val entity = RefreshTokenEntity(
+            token = refreshToken,
             userId = userId,
             ipAddress = ipAddress ?: AuthConstants.UNKNOWN,
             userAgent = userAgent ?: AuthConstants.UNKNOWN,
-            createTime = System.currentTimeMillis()
+            createdAt = now,
+            expiresAt = now.plus(tokenConfig.refreshTokenTtl),
+            rotated = false,
+            revoked = false,
+            updatedAt = now
         )
-
-        val redisKey = redisKey(refreshToken)
-        writeTokenInfo(redisKey, info, tokenConfig.refreshTokenTtl)
-
-        val userTokensKey = userTokensKey(userId)
-        stringRedisTemplate.opsForSet().add(userTokensKey, refreshToken)
-        stringRedisTemplate.expire(userTokensKey, tokenConfig.refreshTokenTtl)
+        refreshTokenMapper.insert(entity)
 
         logger.debug("生成RefreshToken: userId={}, token={}", userId, previewToken(refreshToken))
-
         return refreshToken
     }
-    
+
     /**
      * 验证 RefreshToken 并返回用户ID
      */
     fun validateRefreshToken(refreshToken: String, currentIp: String?): Long? {
-        val info = readTokenInfo(redisKey(refreshToken)) ?: run {
+        val entity = refreshTokenMapper.selectById(refreshToken) ?: run {
             logger.warn("RefreshToken不存在或已过期: {}", previewToken(refreshToken))
             return null
         }
 
-        // 检测 IP 变化（仅警告，不阻止）
-        if (currentIp != null && info.ipAddress != AuthConstants.UNKNOWN && currentIp != info.ipAddress) {
+        val userId = entity.userId ?: return null
+        val now = LocalDateTime.now()
+
+        if (entity.revoked) {
+            logger.warn("RefreshToken已被撤销: userId={}, token={}", userId, previewToken(refreshToken))
+            return null
+        }
+
+        if (currentIp != null &&
+            entity.ipAddress != null &&
+            entity.ipAddress != AuthConstants.UNKNOWN &&
+            currentIp != entity.ipAddress
+        ) {
             logger.warn(
                 "检测到RefreshToken IP变化: userId={}, 原IP={}, 当前IP={}",
-                info.userId, info.ipAddress, currentIp
+                userId, entity.ipAddress, currentIp
             )
         }
 
-        // 未轮换的 token 直接有效
-        if (!info.rotated) return info.userId
-
-        // 已轮换则检查宽限期
-        val now = System.currentTimeMillis()
-        val graceExpiresAt = info.graceExpiresAt
-        
-        return when {
-            graceExpiresAt != null && now <= graceExpiresAt -> {
-                logger.debug(
-                    "RefreshToken处于宽限期: userId={}, token={}, 剩余{}ms",
-                    info.userId, previewToken(refreshToken), graceExpiresAt - now
-                )
-                info.userId
+        if (!entity.rotated) {
+            if (entity.expiresAt != null && now.isAfter(entity.expiresAt)) {
+                logger.warn("RefreshToken已过期: userId={}, token={}", userId, previewToken(refreshToken))
+                return null
             }
-            else -> {
-                logger.warn("RefreshToken已轮换且超过宽限期: userId={}, token={}", info.userId, previewToken(refreshToken))
-                null
-            }
+            return userId
         }
+
+        val graceExpiresAt = entity.graceExpiresAt
+        if (graceExpiresAt != null && (now.isBefore(graceExpiresAt) || now.isEqual(graceExpiresAt))) {
+            val remainingSeconds = Duration.between(now, graceExpiresAt).seconds.coerceAtLeast(0)
+            logger.debug(
+                "RefreshToken处于宽限期: userId={}, token={}, 剩余={}s",
+                userId,
+                previewToken(refreshToken),
+                remainingSeconds
+            )
+            return userId
+        }
+
+        logger.warn("RefreshToken已轮换且超过宽限期: userId={}, token={}", userId, previewToken(refreshToken))
+        return null
     }
-    
+
     /**
      * 轮换 RefreshToken（旧 token 保留宽限期）
      */
     fun rotateRefreshToken(oldRefreshToken: String, ipAddress: String?, userAgent: String?): Pair<Long, String>? {
-        val key = redisKey(oldRefreshToken)
-        val info = readTokenInfo(key) ?: return null
+        val entity = refreshTokenMapper.selectById(oldRefreshToken) ?: return null
+        val userId = entity.userId ?: return null
+        if (entity.revoked) {
+            logger.warn("无法轮换已撤销的RefreshToken: token={}", previewToken(oldRefreshToken))
+            return null
+        }
 
-        val newToken = generateRefreshToken(info.userId, ipAddress, userAgent)
-        val now = System.currentTimeMillis()
+        val newToken = generateRefreshToken(userId, ipAddress, userAgent)
+        val now = LocalDateTime.now()
+        val graceExpiresAt = now.plus(tokenConfig.gracePeriod)
 
-        // 标记旧 token 已轮换，设置宽限到期时间
-        val rotatedInfo = info.copy(
-            rotated = true,
-            rotatedAt = now,
-            replacedBy = newToken,
-            graceExpiresAt = now + tokenConfig.gracePeriod.toMillis()
-        )
+        val updateWrapper = UpdateWrapper<RefreshTokenEntity>()
+            .eq("token", oldRefreshToken)
+            .set("rotated", true)
+            .set("rotated_at", now)
+            .set("replaced_by", newToken)
+            .set("grace_expires_at", graceExpiresAt)
+            .set("updated_at", now)
+        refreshTokenMapper.update(null, updateWrapper)
 
-        // TTL 取宽限期与 token 有效期的较大值
-        val ttl = Duration.ofSeconds(
-            max(tokenConfig.gracePeriod.seconds, tokenConfig.refreshTokenTtl.seconds)
-        )
-        writeTokenInfo(key, rotatedInfo, ttl)
-
-        logger.debug("RefreshToken已轮转: userId={}, newToken={}", info.userId, previewToken(newToken))
-        return Pair(info.userId, newToken)
+        logger.debug("RefreshToken已轮转: userId={}, newToken={}", userId, previewToken(newToken))
+        return Pair(userId, newToken)
     }
-    
+
     /** 轮换 RefreshToken（仅返回新 token） */
     fun rotateRefreshTokenSimple(oldToken: String, ipAddress: String?, userAgent: String?): String? =
         rotateRefreshToken(oldToken, ipAddress, userAgent)?.second
-    
+
     /** 撤销单个 RefreshToken */
     fun revokeRefreshToken(token: String) {
-        val key = redisKey(token)
-        readTokenInfo(key)?.let { info ->
-            stringRedisTemplate.opsForSet().remove(userTokensKey(info.userId), token)
+        val now = LocalDateTime.now()
+        val updateWrapper = UpdateWrapper<RefreshTokenEntity>()
+            .eq("token", token)
+            .set("revoked", true)
+            .set("revoked_at", now)
+            .set("updated_at", now)
+        val updated = refreshTokenMapper.update(null, updateWrapper)
+        if (updated > 0) {
+            logger.debug("撤销RefreshToken: {}", previewToken(token))
         }
-        stringRedisTemplate.delete(key)
-        logger.debug("撤销RefreshToken: {}", previewToken(token))
     }
-    
+
     /** 撤销用户所有 RefreshToken（用于登出/安全事件） */
     fun revokeAllUserTokens(userId: Long) {
-        val tokensKey = userTokensKey(userId)
-        val tokens = stringRedisTemplate.opsForSet().members(tokensKey) ?: emptySet()
-        
-        if (tokens.isNotEmpty()) {
-            tokens.forEach { stringRedisTemplate.delete(redisKey(it)) }
-            stringRedisTemplate.delete(tokensKey)
-            logger.info("撤销用户所有RefreshToken: userId={}, count={}", userId, tokens.size)
+        val now = LocalDateTime.now()
+        val updateWrapper = UpdateWrapper<RefreshTokenEntity>()
+            .eq("user_id", userId)
+            .eq("revoked", false)
+            .set("revoked", true)
+            .set("revoked_at", now)
+            .set("updated_at", now)
+        val count = refreshTokenMapper.update(null, updateWrapper)
+        if (count > 0) {
+            logger.info("撤销用户所有RefreshToken: userId={}, count={}", userId, count)
+        } else {
+            logger.info("撤销用户所有RefreshToken: userId={}, count=0", userId)
         }
     }
-    
-    private fun redisKey(token: String) = "${RedisKeyConstants.RefreshToken.TOKEN_PREFIX}$token"
-
-    private fun userTokensKey(userId: Long) = "${RedisKeyConstants.RefreshToken.USER_TOKENS_PREFIX}$userId"
 
     private fun previewToken(token: String) = token.take(8) + "..."
-
-    private fun readTokenInfo(key: String): RefreshTokenInfo? =
-        stringRedisTemplate.opsForValue().get(key)?.let { json ->
-            try {
-                objectMapper.readValue(json, RefreshTokenInfo::class.java)
-            } catch (ex: Exception) {
-                logger.error("解析RefreshToken失败: key={}, error={}", key, ex.message)
-                null
-            }
-        }
-
-    private fun writeTokenInfo(key: String, info: RefreshTokenInfo, ttl: Duration) {
-        try {
-            val json = objectMapper.writeValueAsString(info)
-            stringRedisTemplate.opsForValue().set(key, json, ttl)
-        } catch (ex: JsonProcessingException) {
-            logger.error("序列化RefreshToken失败: userId={}, error={}", info.userId, ex.message)
-        }
-    }
 }
-
